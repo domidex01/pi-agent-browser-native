@@ -506,7 +506,7 @@ test("real upstream agent-browser contract suite matches QA non-pass after same-
 				const counter = getResultValue((await call(["eval", "window.qaErrorsThrown"])).details!, ["result"]);
 				assert.equal(counter, 1, "the new document must actually throw again at the same URL");
 				const after = await readErrors("after.json");
-				const identicalRows = JSON.stringify(after) === JSON.stringify(before);
+				const identicalRows = JSON.stringify(after.errors) === JSON.stringify(before.errors);
 				const analysis = repeated.details?.qaPreset as { passed: boolean; failedChecks: string[] };
 				t.diagnostic(JSON.stringify({ version, url, before: before.errors.length, after: after.errors.length, identicalRows, counter, qa: analysis, isError: repeated.isError }));
 				assert.equal(analysis.passed, false, "a newly thrown page error must never yield a QA pass, even when FIFO rollover hides it");
