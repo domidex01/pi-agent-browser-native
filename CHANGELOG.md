@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Fixed
+
+- Make QA non-pass when final page-error rows match a nonempty post-clear baseline. Report “page-error check could not be verified” instead of ignoring matches as unchanged; preserve separate novel-error counts, clean passes, and explicit `checkErrors: false` checks.
+
 ## 0.6.11 - 2026-09-12
 
 ### Added

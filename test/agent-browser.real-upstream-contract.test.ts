@@ -466,6 +466,70 @@ test("real upstream agent-browser contract suite matches navigation availability
 	} finally { await fixture.close(); await rm(dir, { recursive: true, force: true }); }
 });
 
+test("real upstream agent-browser contract suite matches QA non-pass after same-URL error-buffer rollover", { skip: !REAL_UPSTREAM_ENABLED, timeout: 90_000 }, async (t) => {
+	const version = await assertInstalledAgentBrowserVersion();
+	const dir = await mkdtemp(join(tmpdir(), "qr-"));
+	const socketDir = join(dir, "s");
+	const fixture = await startAgentBrowserContractFixtureServer();
+	const url = `${fixture.baseUrl}/qa-error-residue`;
+	try {
+		await withPatchedEnv({
+			...Object.fromEntries(Object.keys(process.env).filter((name) => /^(?:PI_)?AGENT_BROWSER_/.test(name)).map((name) => [name, undefined])),
+			HOME: dir, USERPROFILE: dir, PI_CODING_AGENT_DIR: join(dir, "pi"),
+			PI_AGENT_BROWSER_SOCKET_DIR: socketDir, AGENT_BROWSER_SOCKET_DIR: socketDir,
+			PI_AGENT_BROWSER_MANAGED_SESSION_RESTORE: "0",
+		}, async () => {
+			const h = createExtensionHarness({ cwd: dir });
+			await runExtensionEvent(h.handlers, "session_start", { reason: "new" }, h.ctx);
+			const call = async (args: string[], outputPath?: string) => {
+				const result = await executeRegisteredTool(h.tool, h.ctx, { args, outputPath });
+				assert.equal(result.isError, false, result.content[0]?.text);
+				return result;
+			};
+			const readErrors = async (name: string) => {
+				const path = join(dir, name);
+				await call(["errors"], path);
+				return JSON.parse(await readFile(path, "utf8")) as { errors: unknown[] };
+			};
+			try {
+				const clean = await executeRegisteredTool(h.tool, h.ctx, { qa: { url: `${fixture.baseUrl}/contract`, expectedText: "Agent Browser Contract Fixture" } });
+				assert.equal(clean.isError, false, clean.content[0]?.text);
+				assert.equal((clean.details?.qaPreset as { passed: boolean }).passed, true);
+
+				await call(["open", url]);
+				await call(["wait", "--fn", "window.qaErrorsThrown === 1100"]);
+				const before = await readErrors("before.json");
+				assert.equal(before.errors.length, 1000, "the native FIFO must be saturated");
+				assert.equal(new Set(before.errors.map((row) => JSON.stringify(row))).size, 1, "all native error rows must match");
+				await call(["eval", "sessionStorage.setItem('qa-error-count', '1')"]);
+				const repeated = await executeRegisteredTool(h.tool, h.ctx, { qa: { url, expectedText: "Repeated error fixture", checkConsole: false, checkNetwork: false } });
+				const counter = getResultValue((await call(["eval", "window.qaErrorsThrown"])).details!, ["result"]);
+				assert.equal(counter, 1, "the new document must actually throw again at the same URL");
+				const after = await readErrors("after.json");
+				const identicalRows = JSON.stringify(after) === JSON.stringify(before);
+				const analysis = repeated.details?.qaPreset as { passed: boolean; failedChecks: string[] };
+				t.diagnostic(JSON.stringify({ version, url, before: before.errors.length, after: after.errors.length, identicalRows, counter, qa: analysis, isError: repeated.isError }));
+				assert.equal(analysis.passed, false, "a newly thrown page error must never yield a QA pass, even when FIFO rollover hides it");
+				assert.equal(repeated.isError, true);
+				assert.equal(repeated.details?.resultCategory, "failure");
+				assert.equal(repeated.details?.failureCategory, "qa-failure");
+				assert.ok(analysis.failedChecks.some((check) => /page.error/.test(check)));
+				if (identicalRows) {
+					assert.match(analysis.failedChecks.join("\n"), /page-error check could not be verified/);
+					assert.doesNotMatch(analysis.failedChecks.join("\n"), /\d+ page error\(s\)/);
+				}
+				assert.doesNotMatch(repeated.content[0]?.text ?? "", /QA preset passed|ignored as unchanged|Only unchanged residue/);
+			} finally {
+				await call(["close"]);
+				await runExtensionEvent(h.handlers, "session_shutdown", { reason: "quit" }, h.ctx);
+			}
+		});
+	} finally {
+		await fixture.close();
+		await rm(dir, { recursive: true, force: true });
+	}
+});
+
 test("real upstream agent-browser contract suite matches duplicate-name click mutation", {
 	skip: REAL_UPSTREAM_ENABLED ? false : REAL_UPSTREAM_SKIP_REASON,
 	timeout: 60_000,

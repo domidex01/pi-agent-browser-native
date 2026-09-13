@@ -277,7 +277,7 @@ export function buildQaCompactPassText(options: {
 	if (pageParts.length > 0) lines.push(`Page: ${pageParts.join(" — ")}`);
 	lines.push(`Checks run: ${describeQaChecksRun(options.checks)} (${options.batchStepCount} batch step${options.batchStepCount === 1 ? "" : "s"})`);
 	if (options.checks.diagnosticsResetAtStart && (options.checks.checkNetwork || options.checks.checkConsole || options.checks.checkErrors)) {
-		lines.push("Diagnostic isolation: URL QA clears enabled network/console buffers, then snapshots any page-error residue before opening the target. Only unchanged residue is ignored because upstream page-error clear is not reliable.");
+		lines.push("Diagnostic isolation: URL QA requests clears of enabled diagnostic buffers before opening the target.");
 	}
 	if (options.checks.attached && !options.checks.diagnosticsResetAtStart && (options.checks.checkNetwork || options.checks.checkConsole || options.checks.checkErrors)) {
 		lines.push("Attached diagnostics: existing upstream session console/network/error buffers were preserved; rows may include events from before qa.attached started.");
@@ -382,22 +382,22 @@ function qaErrorSignature(error: unknown): string {
 	}
 }
 
-function subtractQaBaselineErrors(errors: unknown[], baselineErrors: unknown[]): { ignoredCount: number; novelErrors: unknown[] } {
+function subtractQaBaselineErrors(errors: unknown[], baselineErrors: unknown[]): { matchedCount: number; novelErrors: unknown[] } {
 	const baselineCounts = new Map<string, number>();
 	for (const error of baselineErrors) {
 		const signature = qaErrorSignature(error);
 		baselineCounts.set(signature, (baselineCounts.get(signature) ?? 0) + 1);
 	}
-	let ignoredCount = 0;
+	let matchedCount = 0;
 	const novelErrors = errors.filter((error) => {
 		const signature = qaErrorSignature(error);
 		const count = baselineCounts.get(signature) ?? 0;
 		if (count === 0) return true;
 		baselineCounts.set(signature, count - 1);
-		ignoredCount += 1;
+		matchedCount += 1;
 		return false;
 	});
-	return { ignoredCount, novelErrors };
+	return { matchedCount, novelErrors };
 }
 
 function isDiagnosticResetCommand(item: Record<string, unknown>): boolean {
@@ -440,9 +440,9 @@ export function analyzeQaPresetResults(data: unknown, compiled?: CompiledAgentBr
 			continue;
 		}
 		if (commandName === "errors" && Array.isArray(result?.errors) && result.errors.length > 0) {
-			const { ignoredCount, novelErrors } = subtractQaBaselineErrors(result.errors, baselineErrors);
+			const { matchedCount, novelErrors } = subtractQaBaselineErrors(result.errors, baselineErrors);
 			if (novelErrors.length > 0) failedChecks.push(`${novelErrors.length} page error(s)`);
-			if (ignoredCount > 0) warnings.push(`${ignoredCount} post-clear page error residue row(s) ignored as unchanged`);
+			if (matchedCount > 0) failedChecks.push(`page-error check could not be verified (${matchedCount} row(s) matched the post-clear baseline; old residue and identical new errors are indistinguishable)`);
 		}
 		if (commandName === "console" && Array.isArray(result?.messages)) {
 			const errorCount = result.messages.filter((message) => isRecord(message) && /error/i.test(String(message.type ?? message.level ?? ""))).length;

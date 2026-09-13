@@ -879,7 +879,7 @@ test("buildQaCompactPassText summarizes successful URL QA", async () => {
 	});
 	assert.match(compact, /Page: Example — https:\/\/example\.test\//);
 	assert.match(compact, /Checks run: load:domcontentloaded, text×1, network, console, errors, diagnostics-reset \(9 batch steps\)/);
-	assert.match(compact, /Diagnostic isolation: URL QA clears enabled network\/console buffers, then snapshots any page-error residue/);
+	assert.match(compact, /Diagnostic isolation: URL QA requests clears of enabled diagnostic buffers before opening the target\./);
 	assert.match(compact, /Full diagnostic matrix: see details\.qaPreset and details\.batchSteps\./);
 });
 

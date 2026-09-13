@@ -109,7 +109,7 @@ test("analyzeQaPresetResults still reports post-open page errors", () => {
 	assert.deepEqual(analysis?.failedChecks, ["1 page error(s)"]);
 });
 
-test("analyzeQaPresetResults subtracts unchanged post-clear page-error residue when upstream clear is a no-op", () => {
+test("analyzeQaPresetResults fails unverified matched page-error evidence when clear is a no-op", () => {
 	const compiled = compileAgentBrowserQaPreset({ url: "https://clean.example.test/", checkConsole: false, checkNetwork: false }).compiled;
 	assert.ok(compiled);
 	const staleError = { message: "old ReferenceError", stack: "at https://old.example.test/app.js:1:1" };
@@ -120,9 +120,29 @@ test("analyzeQaPresetResults subtracts unchanged post-clear page-error residue w
 		{ command: ["wait", "--load", "domcontentloaded"], success: true, result: { ok: true } },
 		{ command: ["errors"], success: true, result: { errors: [staleError] } },
 	], compiled);
-	assert.equal(analysis?.passed, true);
-	assert.deepEqual(analysis?.failedChecks, []);
-	assert.deepEqual(analysis?.warnings, ["1 post-clear page error residue row(s) ignored as unchanged"]);
+	assert.equal(analysis?.passed, false);
+	assert.deepEqual(analysis?.failedChecks, ["page-error check could not be verified (1 row(s) matched the post-clear baseline; old residue and identical new errors are indistinguishable)"]);
+	assert.deepEqual(analysis?.warnings, []);
+	assert.doesNotMatch(analysis?.summary ?? "", /passed|unchanged|1 page error\(s\)/);
+});
+
+test("analyzeQaPresetResults separates novel page errors from ambiguous matching rows", () => {
+	const compiled = compileAgentBrowserQaPreset({ url: "https://target.example.test/", checkConsole: false, checkNetwork: false }).compiled;
+	assert.ok(compiled);
+	const error = { text: "repeated error" };
+	const analysis = analyzeQaPresetResults(compiled.steps.map((step) => ({
+		command: step.args,
+		success: true,
+		result: step.args[0] === "errors"
+			? { errors: step.args.includes("--clear") || step.generatedFrom === "qa.errorBaselineAfterClear" ? [error] : [error, error] }
+			: { ok: true },
+	})), compiled);
+	assert.equal(analysis?.passed, false);
+	assert.deepEqual(analysis?.failedChecks, [
+		"1 page error(s)",
+		"page-error check could not be verified (1 row(s) matched the post-clear baseline; old residue and identical new errors are indistinguishable)",
+	]);
+	assert.deepEqual(analysis?.warnings, []);
 });
 
 test("analyzeQaPresetResults reports a new matching error after a successful clear", () => {
@@ -952,6 +972,7 @@ process.stdin.on("end", () => {
       return { command, success: true, result: staleConsole || mode === "fail" ? { messages: [{ type: "error", text: "boom" }] } : { messages: [] } };
     }
     if (name === "errors") {
+      if (command.includes("--clear") && process.env.AGENT_BROWSER_FAKE_QA_MODE !== "residue") staleErrors = false;
       const errors = [];
       if (staleErrors) errors.push({ text: "stale page boom" });
       if (mode === "fail") errors.push({ text: "current page boom" });
@@ -992,14 +1013,44 @@ process.stdin.on("end", () => {
 				},
 			});
 			assert.equal(cleanResult.isError, false);
+			assert.equal((cleanResult.details?.qaPreset as { passed?: boolean } | undefined)?.passed, true);
 			assert.deepEqual((cleanResult.details?.qaPreset as { failedChecks?: string[] } | undefined)?.failedChecks, []);
-			assert.match((cleanResult.content[0] as { text: string }).text, /QA preset passed with warnings/);
-			assert.match((cleanResult.content[0] as { text: string }).text, /post-clear page error residue/);
+			assert.deepEqual((cleanResult.details?.qaPreset as { warnings?: string[] } | undefined)?.warnings, []);
+			assert.match((cleanResult.content[0] as { text: string }).text, /QA preset passed\./);
 			assert.match((cleanResult.content[0] as { text: string }).text, /Page: QA Page — https:\/\/example\.test\//);
 			assert.match((cleanResult.content[0] as { text: string }).text, /Checks run:/);
 			assert.match((cleanResult.content[0] as { text: string }).text, /Full diagnostic matrix: see details\.qaPreset and details\.batchSteps\./);
 			assert.doesNotMatch((cleanResult.content[0] as { text: string }).text, /Step 1 —/);
 			assert.ok(Array.isArray(cleanResult.details?.batchSteps) && (cleanResult.details?.batchSteps as unknown[]).length > 0);
+
+			await withPatchedEnv({ AGENT_BROWSER_FAKE_QA_MODE: "residue" }, async () => {
+				const ambiguous = await executeRegisteredTool(harness.tool, harness.ctx, { qa: { url: "https://example.test/" } });
+				assert.equal((ambiguous.details?.qaPreset as { passed?: boolean } | undefined)?.passed, false);
+				assert.equal(ambiguous.isError, true);
+				assert.equal(ambiguous.details?.resultCategory, "failure");
+				assert.equal(ambiguous.details?.failureCategory, "qa-failure");
+				assert.deepEqual((ambiguous.details?.qaPreset as { failedChecks?: string[] } | undefined)?.failedChecks, [
+					"page-error check could not be verified (1 row(s) matched the post-clear baseline; old residue and identical new errors are indistinguishable)",
+				]);
+				assert.match(ambiguous.content[0]?.text ?? "", /page-error check could not be verified/);
+				assert.doesNotMatch(ambiguous.content[0]?.text ?? "", /QA preset passed|unchanged|1 page error\(s\)/);
+				const [patch] = await runExtensionEventResults<{ content?: Array<{ text?: string }>; isError?: boolean }>(
+					harness.handlers, "tool_result",
+					{ content: ambiguous.content, details: ambiguous.details, isError: false, toolName: "agent_browser" },
+				);
+				assert.equal(patch?.isError, true);
+				assert.match(patch?.content?.[0]?.text ?? "", /failureCategory: qa-failure; Pi tool isError: true/);
+
+				const disabled = await executeRegisteredTool(harness.tool, harness.ctx, { qa: { url: "https://example.test/", checkErrors: false } });
+				assert.equal((disabled.details?.qaPreset as { passed?: boolean } | undefined)?.passed, true);
+				assert.equal(disabled.isError, false);
+				assert.equal(disabled.details?.resultCategory, "success");
+				const disabledSteps = (disabled.details?.compiledQaPreset as { steps: Array<{ args: string[] }> }).steps;
+				assert.equal(disabledSteps.some((step) => step.args[0] === "errors"), false);
+				const invocation = [...await readInvocationLog(logPath)].reverse().find((entry) => entry.args.includes("batch"));
+				assert.ok(invocation);
+				assert.equal((JSON.parse(invocation.stdin ?? "[]") as string[][]).some((step) => step[0] === "errors"), false);
+			});
 
 			const benignNetworkResult = await executeRegisteredTool(harness.tool, harness.ctx, {
 				qa: {
@@ -1011,9 +1062,8 @@ process.stdin.on("end", () => {
 			assert.deepEqual((benignNetworkResult.details?.qaPreset as { failedChecks?: string[]; warnings?: string[] } | undefined)?.failedChecks, []);
 			assert.deepEqual((benignNetworkResult.details?.qaPreset as { warnings?: string[] } | undefined)?.warnings, [
 				"1 benign network request failure(s) ignored",
-				"1 post-clear page error residue row(s) ignored as unchanged",
 			]);
-			assert.match((benignNetworkResult.content[0] as { text: string }).text, /QA preset passed with warnings: 1 benign network request failure\(s\) ignored; 1 post-clear page error residue row\(s\) ignored as unchanged\./);
+			assert.match((benignNetworkResult.content[0] as { text: string }).text, /QA preset passed with warnings: 1 benign network request failure\(s\) ignored\./);
 			assert.match((benignNetworkResult.content[0] as { text: string }).text, /Full diagnostic matrix: see details\.qaPreset and details\.batchSteps\./);
 			assert.doesNotMatch((benignNetworkResult.content[0] as { text: string }).text, /Network failure summary:/);
 			assert.doesNotMatch((benignNetworkResult.content[0] as { text: string }).text, /Step 1 —/);
