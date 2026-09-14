@@ -97,9 +97,12 @@ test("prepareAgentBrowserSpawnArgs preserves caller launch controls", () => {
 	assert.deepEqual(prepareAgentBrowserSpawnArgs(["--allow-file-access", "true", "open", "file:///tmp/page.html"]), ["--allow-file-access", "true", "open", "file:///tmp/page.html"]);
 	assert.deepEqual(
 		prepareAgentBrowserSpawnArgs(["open", "about:blank"], "Chrome, not Headless\n"),
-		["--args", "--user-agent=Chrome not Headless", "open", "about:blank"],
+		["--args", "--no-startup-window,--user-agent=Chrome not Headless", "open", "about:blank"],
 	);
 	assert.deepEqual(prepareAgentBrowserSpawnArgs(["--allow-file-access", "true", "get", "url"], undefined, true), ["--allow-file-access", "true", "get", "url"]);
+	const custom = ["--args", "--user-agent=Caller,--disable-gpu", "open", "about:blank"];
+	assert.deepEqual(prepareAgentBrowserSpawnArgs(custom, "Wrapper"), custom);
+	assert.deepEqual(prepareAgentBrowserSpawnArgs(custom, "Wrapper", false, "--no-startup-window,--user-agent=Caller,--disable-gpu"), ["--args", "--no-startup-window,--user-agent=Caller,--disable-gpu", "open", "about:blank"]);
 });
 
 test("runAgentBrowserProcess passes upstream browser configuration and file access through", { concurrency: false }, async () => {
@@ -775,6 +778,7 @@ if (args.includes("session") && args.includes("info")) {
 			await runExtensionEvent(harness.handlers, "session_start", { reason: "new" }, harness.ctx);
 
 			const firstOpen = await executeRegisteredTool(harness.tool, harness.ctx, {
+				sessionMode: "fresh",
 				args: ["open", "https://example.com/one"],
 			});
 			assert.equal(firstOpen.isError, false, JSON.stringify(firstOpen));
@@ -814,11 +818,14 @@ test("agentBrowserExtension removes oversized navigation-summary stdout spills a
 	const basePath = process.env.PATH ?? "";
 	await writeFakeAgentBrowserBinary(
 		tempDir,
-		`const args = process.argv.slice(2);
-const isNavigationSummaryHelper = args.includes("eval") || (args.includes("get") && (args.includes("title") || args.includes("url")));
+		`const fs = require("node:fs");
+const args = process.argv.slice(2);
+const clicked = ${JSON.stringify(join(tempDir, "clicked"))};
+if (args.includes("click")) fs.writeFileSync(clicked, "yes");
+const isNavigationSummaryHelper = fs.existsSync(clicked) && (args.includes("eval") || (args.includes("get") && (args.includes("title") || args.includes("url"))));
 if (isNavigationSummaryHelper) {
 	process.stdout.write(JSON.stringify({ success: false, data: { payload: "x".repeat(700000) } }), () => process.exit(1));
-} else if (args.includes("open")) {
+} else if (args.includes("open") || (args.includes("get") && args.includes("url"))) {
 	process.stdout.write(JSON.stringify({ success: true, data: { title: "OK", url: "https://example.com/" } }));
 } else {
 	process.stdout.write(JSON.stringify({ success: true, data: { clicked: true } }));

@@ -579,7 +579,7 @@ process.stdout.write(JSON.stringify({ success: true, data: { result: "https://sa
 			});
 			assert.equal(result.isError, false, result.content[0]?.text);
 			const invocation = (await readInvocationLog(logPath)).find((entry) => entry.args.includes("get") && entry.args.at(-1) === "url");
-			assert.equal(invocation?.args.includes("--args"), false);
+			assert.equal(invocation?.args[invocation.args.indexOf("--args") + 1], "--no-startup-window");
 			assert.equal(invocation?.args.includes("--allow-file-access"), false);
 		});
 	} finally {
@@ -2825,7 +2825,7 @@ if (args.includes("snapshot")) {
 	);
 
 	try {
-		await withPatchedEnv({ PATH: `${tempDir}:${basePath}`, PI_AGENT_BROWSER_IMPLICIT_SESSION_IDLE_TIMEOUT_MS: "1234" }, async () => {
+		await withPatchedEnv({ PATH: `${tempDir}:${basePath}`, PI_AGENT_BROWSER_TEST_PAGE_URL: "https://same.example/fixture", AGENT_BROWSER_IDLE_TIMEOUT_MS: "1234" }, async () => {
 			const harness = createExtensionHarness({ cwd: tempDir });
 			await runExtensionEvent(harness.handlers, "session_start", { reason: "new" }, harness.ctx);
 
@@ -2926,7 +2926,7 @@ if (args.includes("snapshot")) {
 	);
 
 	try {
-		await withPatchedEnv({ PATH: `${tempDir}:${basePath}` }, async () => {
+		await withPatchedEnv({ PATH: `${tempDir}:${basePath}`, PI_AGENT_BROWSER_TEST_PAGE_URL: "https://record.example/" }, async () => {
 			const harness = createExtensionHarness({ cwd: tempDir });
 			await runExtensionEvent(harness.handlers, "session_start", { reason: "new" }, harness.ctx);
 

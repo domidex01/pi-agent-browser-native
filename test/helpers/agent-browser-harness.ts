@@ -603,13 +603,17 @@ export async function writeFakeAgentBrowserBinary(
 ): Promise<string> {
 	const defaultSessionInfo = `if (process.env.PI_AGENT_BROWSER_TEST_PRESERVE_INTERNAL_LAUNCH_FLAGS !== "1") {
   const rawArgsIndex = process.argv.indexOf("--args");
-  if (rawArgsIndex >= 0 && process.argv[rawArgsIndex + 1] === "") process.argv.splice(rawArgsIndex, 2);
+  if (rawArgsIndex >= 0 && ["", "--no-startup-window"].includes(process.argv[rawArgsIndex + 1])) process.argv.splice(rawArgsIndex, 2);
   const fileAccessIndex = process.argv.indexOf("--allow-file-access");
   if (fileAccessIndex >= 0 && process.argv[fileAccessIndex + 1] === "false") process.argv.splice(fileAccessIndex, 2);
 }
 const __piabFakeArgs = process.argv.slice(2);
 if (process.env.PI_AGENT_BROWSER_TEST_CUSTOM_VERSION !== "1" && __piabFakeArgs.includes("--version")) {
   process.stdout.write(${JSON.stringify(`${TARGET_AGENT_BROWSER_VERSION_LABEL}\n`)});
+  process.exit(0);
+}
+if (process.env.PI_AGENT_BROWSER_TEST_PAGE_URL && __piabFakeArgs.at(-2) === "get" && __piabFakeArgs.at(-1) === "url") {
+  process.stdout.write(JSON.stringify({ success: true, data: { url: process.env.PI_AGENT_BROWSER_TEST_PAGE_URL } }));
   process.exit(0);
 }
 if (process.env.PI_AGENT_BROWSER_TEST_CUSTOM_SESSION_INFO !== "1" && __piabFakeArgs.includes("session") && __piabFakeArgs.includes("info")) {

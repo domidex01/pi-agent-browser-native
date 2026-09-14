@@ -141,9 +141,9 @@ The default extension factory optionally accepts `{ beforeExecute }`. `index.ts`
 
 ### Default
 
-An explicit native `session` default (user/project JSON or `AGENT_BROWSER_SESSION`) selects a caller-owned browser across Pi sessions. Per-call session/namespace flags win. `lib/orchestration/native-session-defaults.ts` reads only session/namespace presence from native config paths and uses sessionless native `--config <path> --json session` to validate each contributing file and resolve its session. Native config continues to own launch/profile/storage settings; the adapter does not duplicate its schema. Explicit config and per-call idle settings are scoped to helpers through `lib/process-environment.ts`. No startup probe, persistent config cache, or new lifecycle service is added.
+An explicit native `session` default (user/project JSON or `AGENT_BROWSER_SESSION`) selects a caller-owned browser across Pi sessions. Per-call session/namespace flags win. `lib/orchestration/native-session-defaults.ts` reads session/namespace and contributing launch defaults from native config paths and uses sessionless native `--config <path> --json session` to validate each contributing file and resolve its session. Native config continues to own launch/profile/storage settings; the adapter does not duplicate its schema. Explicit config and per-call idle settings are scoped to helpers through `lib/process-environment.ts`. No startup probe, persistent config cache, or new lifecycle service is added.
 
-When no native session is configured or passed, `sessionMode: "auto"` uses the existing implicit name derived from the current `pi` session id plus a hash of the absolute cwd. A configured session has the same precedence over `fresh` as a literal `--session`; script and Electron launch keep their separate wrapper-owned lifecycles. Electron launch suppresses the native session environment default only while allocating its generated session; ordinary browser follow-ups still honor the configured native default, so use the returned Electron session explicitly.
+When no native session, attachment, or explicit fresh launch is selected, `sessionMode: "auto"` uses `pi-root-<sha256(root Pi ID)[0:24]>` through the existing caller-owned named-session path. Descendants receive `PI_SUBAGENT_ROOT_SESSION_ID` from pi-subagents; root processes use `ctx.sessionManager.getSessionId()`. No cwd, human fork ancestry, run registry, or process-global assignment participates. The same name is the default native restore key. Existing native daemon inspection runs inside the existing identity queue: inactive roots receive bootstrap defaults, while active roots retain native launch settings and their current restore key. Scoped subprocess environment keeps helper settings consistent; no launch-settings journal is added. Root-name explicit follow-ups retain those defaults; unrelated explicit names do not. Global/override package `browser.defaultProfile` with `policy: "always"` supplies native Chrome profile names only, plus the configured executable. Paths and project-only profile settings stay advisory. Native config/environment and explicit launch settings win. The communal source is copied by native Chrome launch, never by the wrapper, and each root's restore writes remain separate. Native JSON restore omits IndexedDB, service workers, and page-memory credentials; application-level restart verification is required. Parent and child quit leave the root browser alive; existing per-session queues remain process-local, with no global broker. An active older/fresh managed session keeps its existing lifecycle. A configured session has the same precedence over `fresh` as a literal `--session`; script and Electron launch keep their separate wrapper-owned lifecycles. Electron launch suppresses the native session environment default only while allocating its generated session; ordinary browser follow-ups still honor the configured native default, so use the returned Electron session explicitly.
 
 Why:
 - works out of the box
@@ -166,8 +166,9 @@ The tool should also expose a first-class `sessionMode: "fresh"` escape hatch so
 
 ### Ownership
 
-V1 ownership rule:
-- implicit auto-generated sessions are extension-managed convenience sessions
+Ownership rule:
+- automatic root sessions use native caller-owned lifecycle; group members coordinate and close them explicitly
+- older implicit auto-generated sessions are extension-managed convenience sessions
 - unnamed `sessionMode: "fresh"` launches rotate that extension-managed session to a new upstream browser
 - explicit/user-managed sessions are not auto-managed by default
 - extension-managed sessions should be reusable during an active `pi` session and across `/reload`, exact-session relaunch, `/resume`, and Pi branch-tree transitions, while still being cleaned up predictably
@@ -207,6 +208,10 @@ Practical policy:
 This is primarily about ownership clarity and avoiding surprise, not adding a heavy safety wrapper. If the extension invented the session, the extension should own its lifecycle without breaking reload, resume, or branch-tree semantics. If the caller explicitly chose the upstream session model, the extension should stay out of the way.
 
 ### Launch flags
+
+`native-session-defaults.ts` reads launch-argument/engine fields through its existing native-validated config discovery. Local Chrome composes `--no-startup-window` with the highest-priority caller arguments. Root bootstrap retains its existing helper scope; owned/fresh preparation reuses daemon-policy inspection, while explicit local callers use the same session-info probe. `process.ts` applies the scoped arguments after managed restore-policy checks, composing the existing compatibility user agent without overriding caller Chrome arguments. Configured environment/file arguments remain consistent across helpers; ordinary active calls do not receive a new launch configuration. This adds no browser launcher, profile mutation, tab cleanup, binary distribution, or persistent launch-settings state. Older custom-argument browsers can undergo native's normal hash-change restart on first use of the new default.
+
+Input resolution replaces URL-less `open` with native `get url` before planning, retaining requested argv separately. Effective raw/stdin batch rows use the existing native argument parser and raw-over-stdin precedence; only changed rows are rewritten. Native URL reads provide lazy launch and real lifecycle/URL output without navigating an existing page. Explicit navigation and help/version input are unchanged.
 
 `agent-browser` startup flags are sticky once a session is already running.
 The extension should surface that clearly and avoid hidden restart behavior in v1.

@@ -38,7 +38,7 @@ npm run verify -- platform-smoke run --target ubuntu --suite platform-build
 
 ## Alternate native transports
 
-For the 0.6.12 release, local macOS execution replaces localhost SSH, and the [Native Windows workflow](https://github.com/fitchmultz/pi-agent-browser-native/blob/main/.github/workflows/windows-native.yml) runs the existing Windows suites on a GitHub-hosted Windows runner. These are native platform checks, not Crabbox SSH or Parallels passes. The default `release` and `prepublishOnly` commands still select the Crabbox matrix; record alternate suite evidence separately rather than reporting those commands as passed.
+For the 0.6.13 release, local macOS execution replaces localhost SSH, and the [Native Windows workflow](https://github.com/fitchmultz/pi-agent-browser-native/blob/main/.github/workflows/windows-native.yml) runs the existing Windows suites on a GitHub-hosted Windows runner. These are native platform checks, not Crabbox SSH or Parallels passes. The default `release` and `prepublishOnly` commands still select the Crabbox matrix; record alternate suite evidence separately rather than reporting those commands as passed.
 
 On macOS, run the unchanged commands returned by `buildPlatformBuildCommand('macos', 'pi-agent-browser-native', 24)` and `buildBrowserDogfoodCommand('macos', '0.37.0', true)` in [`scripts/platform-smoke/targets.mjs`](../scripts/platform-smoke/targets.mjs), serially in a clean private source copy. Use private HOME, npm and Pi settings, and headless browser profiles. No Remote Login or host security change is required.
 
@@ -113,7 +113,7 @@ Each required target runs `platform-build` and `browser-dogfood-smoke` on one Cr
 ### `browser-dogfood-smoke`
 
 1. Run `npm ci` in the synced checkout if needed.
-2. Run the deterministic model-free browser smoke through `scripts/verify-agent-browser-dogfood.ts`.
+2. Run the deterministic model-free browser smoke through `scripts/verify-agent-browser-dogfood.ts`, starting with `sessionMode: "fresh"` so every browser stays in the test-owned managed lifecycle.
 3. Exercise native wrapper surfaces against the deterministic loopback HTTP fixture from `scripts/verify-agent-browser-dogfood.ts`: top-level `qa`, `semanticAction`, constrained `job`, screenshot artifact verification, and session close.
 4. Persist the dogfood JSON report and stdout/stderr evidence.
 5. Fail on missing browser artifacts, failed tool calls, leaked secrets, or unclosed sessions.
