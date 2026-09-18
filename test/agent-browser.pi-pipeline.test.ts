@@ -7,12 +7,12 @@
 import assert from "node:assert/strict";
 import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import test from "node:test";
 import { setTimeout as delay } from "node:timers/promises";
 import { Type } from "typebox";
 
-import { InMemoryCredentialStore } from "@earendil-works/pi-ai";
+import { InMemoryCredentialStore, type JsonValue } from "@earendil-works/pi-ai";
 import {
 	createAssistantMessageEventStream,
 	type AssistantMessage,
@@ -42,7 +42,7 @@ import {
 const PIPELINE_PROVIDER = "piab-pipeline";
 const PIPELINE_MODEL_ID = "tool-pipeline";
 
-type PipelineToolResult = ToolResultMessage<unknown> & { toolName: "agent_browser" };
+type PipelineToolResult = ToolResultMessage<JsonValue> & { toolName: "agent_browser" };
 
 type PipelinePromptResult = {
 	inMemoryResult: PipelineToolResult;
@@ -98,7 +98,7 @@ function streamTextResponse(model: Model<any>, text: string) {
 	return stream;
 }
 
-function createToolCallingStream(toolArguments: Record<string, unknown>, priorCalls: ToolCall[] = []) {
+function createToolCallingStream(toolArguments: Record<string, JsonValue>, priorCalls: ToolCall[] = []) {
 	return (model: Model<any>, context: Context, _options?: SimpleStreamOptions) => {
 		const hasToolResult = context.messages.some((message) => message.role === "toolResult" && message.toolName === "agent_browser");
 		if (hasToolResult) return streamTextResponse(model, "Observed agent_browser result.");
@@ -157,7 +157,7 @@ async function readPersistedAgentBrowserResult(sessionDir: string): Promise<{ re
 	return { result, sessionFile };
 }
 
-function registerPipelineProvider(modelRuntime: ModelRuntime, toolArguments: Record<string, unknown>, priorCalls?: ToolCall[]): Model<any> {
+function registerPipelineProvider(modelRuntime: ModelRuntime, toolArguments: Record<string, JsonValue>, priorCalls?: ToolCall[]): Model<any> {
 	modelRuntime.registerProvider(PIPELINE_PROVIDER, {
 		api: "openai-completions",
 		apiKey: "piab-pipeline-key",
@@ -180,7 +180,7 @@ function registerPipelineProvider(modelRuntime: ModelRuntime, toolArguments: Rec
 
 async function runPipelinePrompt(options: {
 	fakeScript: string;
-	toolArguments: Record<string, unknown>;
+	toolArguments: Record<string, JsonValue>;
 	extensionFactory?: ExtensionFactory;
 	priorCalls?: ToolCall[];
 	runPrompt?: (session: AgentSession) => Promise<void>;
@@ -206,7 +206,8 @@ async function runPipelinePrompt(options: {
 			const resourceLoader = new DefaultResourceLoader({
 				agentDir: tempDir,
 				cwd: tempDir,
-				extensionFactories: [options.extensionFactory ?? agentBrowserExtension],
+				extensionFactories: options.extensionFactory ? [options.extensionFactory] : [],
+				additionalExtensionPaths: options.extensionFactory ? [] : [resolve(".")],
 				noContextFiles: true,
 				noExtensions: true,
 				noPromptTemplates: true,
@@ -214,6 +215,11 @@ async function runPipelinePrompt(options: {
 				noThemes: true,
 			});
 			await resourceLoader.reload();
+			assert.deepEqual(resourceLoader.getExtensions().errors, []);
+			assert.equal(resourceLoader.getExtensions().extensions.length, 1);
+			if (!options.extensionFactory) {
+				assert.equal(resourceLoader.getExtensions().extensions[0]?.resolvedPath, resolve("dist/extensions/agent-browser/index.js"));
+			}
 			const { session } = await createAgentSession({
 				cwd: tempDir,
 				model,
@@ -225,6 +231,7 @@ async function runPipelinePrompt(options: {
 				tools: [...(options.priorCalls ?? []).map((call) => call.name), "agent_browser"],
 			});
 			try {
+				await session.bindExtensions({ onError: (error) => { throw new Error(error.error); } });
 				if (options.runPrompt) await options.runPrompt(session);
 				else await session.prompt("Use agent_browser once.");
 				const inMemoryResult = session.messages.find(isAgentBrowserToolResult);

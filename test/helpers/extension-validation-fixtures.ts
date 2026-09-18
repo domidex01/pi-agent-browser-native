@@ -15,6 +15,8 @@ import type { AgentBrowserToolParams, AgentBrowserToolRenderContext } from "./ag
 type RenderThemeColor = Parameters<Theme["fg"]>[0];
 type RenderThemeBg = Parameters<Theme["bg"]>[0];
 
+// Pi 0.85 moved scrollbar colors to foreground and added search colors.
+// Keep both palettes complete so these fixtures also compile on the 0.84 baseline.
 const PLAIN_RENDER_FG_COLORS = {
 	accent: "#ffffff",
 	bashMode: "#ffffff",
@@ -36,6 +38,9 @@ const PLAIN_RENDER_FG_COLORS = {
 	mdQuote: "#ffffff",
 	mdQuoteBorder: "#ffffff",
 	muted: "#ffffff",
+	scrollbarTrack: "#ffffff",
+	scrollbarThumb: "#ffffff",
+	searchMatchText: "#ffffff",
 	success: "#ffffff",
 	syntaxComment: "#ffffff",
 	syntaxFunction: "#ffffff",
@@ -62,17 +67,18 @@ const PLAIN_RENDER_FG_COLORS = {
 	toolTitle: "#ffffff",
 	userMessageText: "#ffffff",
 	warning: "#ffffff",
-} satisfies Record<RenderThemeColor, string>;
+} satisfies Record<RenderThemeColor | "scrollbarTrack" | "scrollbarThumb" | "searchMatchText", string>;
 
 const PLAIN_RENDER_BG_COLORS = {
 	customMessageBg: "#000000",
 	scrollbarThumb: "#000000",
 	selectedBg: "#000000",
+	searchMatchBg: "#000000",
 	toolErrorBg: "#000000",
 	toolPendingBg: "#000000",
 	toolSuccessBg: "#000000",
 	userMessageBg: "#000000",
-} satisfies Record<RenderThemeBg, string>;
+} satisfies Record<RenderThemeBg | "scrollbarThumb" | "searchMatchBg", string>;
 
 class PlainRenderTheme extends Theme {
 	constructor() {
