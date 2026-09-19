@@ -7,7 +7,7 @@
 import assert from "node:assert/strict";
 import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import test from "node:test";
 import { setTimeout as delay } from "node:timers/promises";
 import { Type } from "typebox";
@@ -206,7 +206,8 @@ async function runPipelinePrompt(options: {
 			const resourceLoader = new DefaultResourceLoader({
 				agentDir: tempDir,
 				cwd: tempDir,
-				extensionFactories: [options.extensionFactory ?? agentBrowserExtension],
+				extensionFactories: options.extensionFactory ? [options.extensionFactory] : [],
+				additionalExtensionPaths: options.extensionFactory ? [] : [resolve(".")],
 				noContextFiles: true,
 				noExtensions: true,
 				noPromptTemplates: true,
@@ -214,6 +215,11 @@ async function runPipelinePrompt(options: {
 				noThemes: true,
 			});
 			await resourceLoader.reload();
+			assert.deepEqual(resourceLoader.getExtensions().errors, []);
+			assert.equal(resourceLoader.getExtensions().extensions.length, 1);
+			if (!options.extensionFactory) {
+				assert.equal(resourceLoader.getExtensions().extensions[0]?.resolvedPath, resolve("dist/extensions/agent-browser/index.js"));
+			}
 			const { session } = await createAgentSession({
 				cwd: tempDir,
 				model,
@@ -225,6 +231,7 @@ async function runPipelinePrompt(options: {
 				tools: [...(options.priorCalls ?? []).map((call) => call.name), "agent_browser"],
 			});
 			try {
+				await session.bindExtensions({ onError: (error) => { throw new Error(error.error); } });
 				if (options.runPrompt) await options.runPrompt(session);
 				else await session.prompt("Use agent_browser once.");
 				const inMemoryResult = session.messages.find(isAgentBrowserToolResult);
