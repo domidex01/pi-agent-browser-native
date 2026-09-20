@@ -38,11 +38,12 @@ import {
 import { deleteIdentityKeysInNamespace, extractExplicitNamespace, extractExplicitSessionName, getAgentBrowserSessionIdentityKey, isAgentBrowserSessionIdentityKeyInNamespace, isUpstreamEnvFlagEnabled, resolveAgentBrowserNamespace } from "./lib/argv-grammar.js";
 import { parseArgvDescriptor } from "./lib/argv-descriptor.js";
 import { needsManagedSession } from "./lib/command-policy.js";
-import { ManagedSessionRestoreState } from "./lib/managed-session-restore.js";
+import { ManagedSessionRestoreState, resolveOwnedManagedSessionContext, withOwnedManagedSessionContext } from "./lib/managed-session-restore.js";
 import { isRecord } from "./lib/parsing.js";
 import { runAgentBrowserProcess } from "./lib/process.js";
 import { getAgentBrowserProcessEnvironment, withIsolatedAgentBrowserEnvironment } from "./lib/process-environment.js";
 import { withNativeSessionDefaults } from "./lib/orchestration/native-session-defaults.js";
+import { closeManagedSession, inspectManagedSessionDaemon } from "./lib/orchestration/browser-run/managed-session-daemon-policy.js";
 import {
 	MINIMUM_AGENT_BROWSER_VERSION,
 	SUPPORTED_AGENT_BROWSER_VERSION_LABEL,
@@ -64,9 +65,9 @@ import {
 	runAgentBrowserScript,
 	type AgentBrowserScriptRunResult,
 } from "./lib/input-modes/script.js";
-import { closeManagedSession, getSessionContextKey, runAgentBrowserTool, type AgentBrowserToolResult, type BrowserRunState, type TraceOwner } from "./lib/orchestration/browser-run/index.js";
+import type { AgentBrowserToolResult, BrowserRunState, TraceOwner } from "./lib/orchestration/browser-run/types.js";
 import { canonicalizeExplicitArtifactDestination, getExplicitArtifactDestination, getRecordContactSheetDestination } from "./lib/orchestration/browser-run/artifact-paths.js";
-import { findElectronLaunchRecordForSession, getActiveElectronRecords } from "./lib/orchestration/browser-run/session-state.js";
+import { findElectronLaunchRecordForSession, getActiveElectronRecords, getSessionContextKey } from "./lib/orchestration/browser-run/session-state.js";
 import { parseBatchCommandArgument, parseUserBatchStdin } from "./lib/orchestration/batch-stdin.js";
 import {
 	ELECTRON_POST_COMMAND_STATUS_SETTLE_MS,
@@ -692,7 +693,7 @@ function collectBranchManagedResourceEvents(branch: unknown[]): BranchManagedRes
 			const replacedSessionNamespace = typeof outcome.replacedSessionNamespace === "string" ? outcome.replacedSessionNamespace : namespace;
 			setBranchRankForString(events.managedSessionCloseRanks, getSessionContextKey(typeof outcome.replacedSessionName === "string" ? outcome.replacedSessionName : undefined, replacedSessionNamespace), eventRank);
 		}
-		if (succeeded && !isCloseCommand(command) && sessionName && (usedImplicitSession || sessionMode === "fresh" || details.managedSessionHeadedAutosaveDisabled === true || typeof details.managedSessionHeadedAutosaveInterval === "string")) {
+		if (succeeded && !isCloseCommand(command) && sessionName && ((!explicitSessionName && (usedImplicitSession || sessionMode === "fresh")) || details.managedSessionHeadedAutosaveDisabled === true || typeof details.managedSessionHeadedAutosaveInterval === "string")) {
 			setBranchManagedSessionActive(events, sessionName, namespace, eventRank);
 		}
 		if (succeeded && isCloseCommand(command)) {
@@ -1359,6 +1360,71 @@ export default function agentBrowserExtension(
 		}));
 	});
 
+	// Additive native checkpoint event; the package's 0.84 validation types predate it.
+	// Pi owns awaited tools/events (including their execution queues). Only script
+	// children and retained browser/recording resources need extension-side checks.
+	const checkpointPi = pi as ExtensionAPI & { on(event: "session_checkpoint", handler: (event: { signal: AbortSignal }, ctx: ExtensionContext) => Promise<{ sleepReady: boolean; reason?: string }>): void };
+	checkpointPi.on("session_checkpoint", async (event, ctx) => {
+		const blocked = (reason: string) => ({ sleepReady: false, reason });
+		if (activeScriptControllers.size || activeScriptExecutions.size) return blocked("Browser script execution or cleanup is pending");
+		flushRecordingReservations();
+		if (recordingReservationsDirty) return blocked("Browser recording journal persistence is dirty");
+		if (activeRecordingReservations.size) return blocked("Browser recording is pending; finish it explicitly before sleep");
+		const entries = ctx.sessionManager.getEntries();
+		if ([...getScriptSessionLeasesFromBranch(entries).values()].some(lease => lease.cleanup !== "closed")
+			|| [...ownedManagedSessions.values()].some(owner => isAgentBrowserScriptSessionName(owner.sessionName))) {
+			return blocked("Browser script cleanup lease is unresolved");
+		}
+		if (getActiveElectronRecords(ownedElectronLaunchRecords).length || getActiveElectronRecords(electronLaunchRecords).length
+			|| [...electronChildProcesses.values()].some(child => child.exitCode === null && child.signalCode === null)) {
+			return blocked("Electron launch is still active");
+		}
+		if (attachedSessionKeys.size || restoreAttachedSessionKeysFromBranch(entries).size) return blocked("Attached browser state is caller-owned and not checkpointed");
+		if (traceOwners.size || [...networkRoutesBySession.values()].some(routes => routes.length)) return blocked("Browser trace or network routes are still active");
+
+		// Include off-branch and caller-owned/root identities, without acquiring
+		// cleanup ownership. Transcript page/ref details do not serialize a browser.
+		const historicalResources = collectBranchManagedResourceEvents(entries);
+		const sessions = new Map(ownedManagedSessions);
+		if (managedSessionActive) trackOwnedManagedSession(sessions, managedSessionName, managedSessionCwd, { namespace: managedSessionNamespace });
+		for (const entry of entries) {
+			if (entry.type !== "message" || entry.message.role !== "toolResult" || entry.message.toolName !== "agent_browser") continue;
+			const details = isRecord(entry.message.details) ? entry.message.details : undefined;
+			// Helpers can launch before a main-process failure. Conversely, native
+			// launch flags on sessionless reads can open the unnamed default browser.
+			const sessionName = typeof details?.sessionName === "string" ? details.sessionName
+				: details?.agentBrowserStarted === true ? "default" : undefined;
+			if (!sessionName) continue;
+			const namespace = typeof details?.namespace === "string" ? details.namespace : undefined;
+			const key = getSessionContextKey(sessionName, namespace) ?? sessionName;
+			if (!sessions.has(key)) trackOwnedManagedSession(sessions, sessionName, ctx.cwd, { namespace });
+		}
+		for (const [key, owner] of sessions) {
+			event.signal.throwIfAborted();
+			// An abnormal restart can leave a wrapper-created browser only off-branch.
+			// Reuse native ownership events for inspection, never cleanup ownership.
+			// A later close can refer to the same identity in a different socket root.
+			const historicalIdentity = historicalResources.managedSessionActiveIdentities.get(key);
+			const historicallyOwned = historicalIdentity && isRestorableManagedSessionName(historicalIdentity.sessionName, managedSessionBaseName);
+			const context = resolveOwnedManagedSessionContext({
+				...owner,
+				currentManagedSessionName: managedSessionActive ? managedSessionName : undefined,
+				currentManagedSessionNamespace: managedSessionNamespace,
+				recordedOwnedSession: ownedManagedSessions.get(key) ?? (historicallyOwned ? { ...historicalIdentity, cwd: ctx.cwd } : undefined),
+				restoreState: managedSessionRestoreState,
+			});
+			// Owned routing must not mask an explicit caller's same-name ambient daemon.
+			for (const inspectionContext of context ? [{ ...context, reuseOnly: true }, undefined] : [undefined]) {
+				const daemon = await withOwnedManagedSessionContext(inspectionContext,
+					() => inspectManagedSessionDaemon({ ...owner, signal: event.signal, timeoutMs: 2_000 }));
+				if (daemon.status !== "inactive") return blocked("Browser daemon is live or unverified; finish browser work explicitly before sleep");
+			}
+		}
+		// No detached writer remains to pause/resume. Native ingress stays held;
+		// checkpoint never closes a browser or changes ordinary shutdown ownership.
+		return { sleepReady: true };
+	});
+
 	pi.on("session_shutdown", async (event, ctx) => {
 		for (const controller of activeScriptControllers) controller.abort();
 		await Promise.allSettled([...activeScriptExecutions]);
@@ -1750,6 +1816,9 @@ export default function agentBrowserExtension(
 				? getSessionContextKey(explicitSessionName, callerOwnedSessionNamespace) ?? explicitSessionName
 				: undefined;
 			const runBrowserCommand = async (daemonInactive?: boolean) => {
+				// Load execution-only preparation/output code inside the existing session queue,
+				// before capturing state. Registration, rendering, and restore stay synchronous/eager.
+				const { runAgentBrowserTool } = await import("./lib/orchestration/browser-run/index.js");
 				flushRecordingReservations();
 				const branchRestoreGenerationAtStart = branchRestoreGeneration;
 				const generationAtStart = branchStateGeneration;
