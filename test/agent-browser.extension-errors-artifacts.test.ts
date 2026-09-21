@@ -1089,22 +1089,21 @@ test("agentBrowserExtension rejects malformed JSON envelopes that omit success",
 	}
 });
 
-test("agentBrowserExtension forwards long waits and extends the subprocess watchdog from explicit wait timeouts", { concurrency: false }, async () => {
+test("agentBrowserExtension forwards long waits and extends the subprocess watchdog from explicit wait timeouts", { concurrency: false }, async (t) => {
 	const tempDir = await mkdtemp(join(tmpdir(), "pi-agent-browser-wait-timeout-"));
 	const logPath = join(tempDir, "invocations.log");
+	const releasePath = join(tempDir, "release");
 	const basePath = process.env.PATH ?? "";
 	await writeFakeAgentBrowserBinary(
 		tempDir,
 		`const fs = require("node:fs");
 const stdin = fs.readFileSync(0, "utf8");
-fs.appendFileSync(${JSON.stringify(logPath)}, JSON.stringify({ args: process.argv.slice(2), stdin, defaultTimeout: process.env.AGENT_BROWSER_DEFAULT_TIMEOUT }) + "\\n");
-let delay = 100;
-try {
-  const parsed = JSON.parse(stdin);
-  const waitCount = Array.isArray(parsed) ? parsed.filter((step) => Array.isArray(step) && step[0] === "wait").length : 0;
-  if (waitCount > 1) delay = 6500;
-} catch {}
-setTimeout(() => process.stdout.write(JSON.stringify({ success: true, data: { ok: true } })), delay);`,
+const watcher = fs.watch(${JSON.stringify(tempDir)}, () => {
+  if (!fs.existsSync(${JSON.stringify(releasePath)})) return;
+  watcher.close();
+  process.stdout.write(JSON.stringify({ success: true, data: { ok: true } }));
+});
+fs.appendFileSync(${JSON.stringify(logPath)}, JSON.stringify({ args: process.argv.slice(2), stdin, defaultTimeout: process.env.AGENT_BROWSER_DEFAULT_TIMEOUT }) + "\\n");`,
 	);
 
 	try {
@@ -1112,21 +1111,36 @@ setTimeout(() => process.stdout.write(JSON.stringify({ success: true, data: { ok
 			const harness = createExtensionHarness({ cwd: tempDir });
 			await runExtensionEvent(harness.handlers, "session_start", { reason: "new" }, harness.ctx);
 
-			const directWait = await executeRegisteredTool(harness.tool, harness.ctx, {
-				args: ["wait", "31000"],
-			});
-			const downloadWait = await executeRegisteredTool(harness.tool, harness.ctx, {
-				args: ["wait", "--download", "/tmp/export.csv", "--timeout", "30000"],
-			});
 			const batchWaitStdin = JSON.stringify([["wait", "--text", "42", "--timeout", "1000"], ["wait", "1000"]]);
-			const batchWait = await executeRegisteredTool(harness.tool, harness.ctx, {
-				args: ["batch"],
-				stdin: batchWaitStdin,
-			});
-
-			for (const result of [directWait, downloadWait, batchWait]) {
-				assert.equal(result.isError, false);
-				assert.equal(result.details?.resultCategory, "success");
+			const cases = [
+				{ params: { args: ["wait", "31000"] }, elapsed: 100 },
+				{ params: { args: ["wait", "--download", "/tmp/export.csv", "--timeout", "30000"] }, elapsed: 100 },
+				{ params: { args: ["batch"], stdin: batchWaitStdin }, elapsed: 6500 },
+			];
+			const realSetTimeout = setTimeout;
+			for (const [index, { params, elapsed }] of cases.entries()) {
+				await rm(releasePath, { force: true });
+				const controller = new AbortController();
+				t.mock.timers.enable({ apis: ["setTimeout"] });
+				const pending = executeRegisteredTool(harness.tool, harness.ctx, params, controller.signal);
+				try {
+					// Preflight and native process startup use real I/O. Advance the
+					// watchdog only once the requested command is running and held.
+					const deadline = Date.now() + 5000;
+					while ((await readInvocationLog(logPath)).length <= index) {
+						assert.ok(Date.now() < deadline, "controlled wait child must start");
+						await new Promise((resolve) => realSetTimeout(resolve, 5));
+					}
+					t.mock.timers.tick(elapsed);
+					await writeFile(releasePath, "release");
+					const result = await pending;
+					assert.equal(result.isError, false, JSON.stringify(result));
+					assert.equal(result.details?.resultCategory, "success");
+				} finally {
+					t.mock.timers.reset();
+					controller.abort();
+					await Promise.allSettled([pending]);
+				}
 			}
 			const invocations = await readInvocationLog(logPath);
 			assert.deepEqual(invocations.map((entry) => entry.args.slice(-4)), [
