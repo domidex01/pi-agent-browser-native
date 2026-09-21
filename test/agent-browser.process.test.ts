@@ -27,6 +27,7 @@ import {
 	ensureAgentBrowserSocketDir,
 	getAgentBrowserProcessTimeoutMs,
 	getAgentBrowserSocketPathValidationError,
+	getAgentBrowserSocketDirValidationError,
 	isTrustedAndroidAppDataRoot,
 	isTrustedSocketDirAncestor,
 	prepareAgentBrowserSpawnArgs,
@@ -48,6 +49,26 @@ import {
 	withPatchedEnv,
 	writeFakeAgentBrowserBinary,
 } from "./helpers/agent-browser-harness.js";
+
+test("Windows socket storage validates native directories without POSIX uid metadata", async () => {
+	const root = await mkdtemp(join(tmpdir(), "piab-win-storage-"));
+	try {
+		const socketDir = join(root, "socket");
+		await mkdir(socketDir, { mode: 0o755 });
+		assert.equal(await getAgentBrowserSocketDirValidationError(socketDir, undefined, "win32"), undefined);
+		assert.equal((await lstat(socketDir)).isDirectory(), true);
+		assert.equal(await getAgentBrowserSocketDirValidationError(socketDir, undefined, "win32"), undefined);
+		assert.equal(await getAgentBrowserSocketDirValidationError("relative", undefined, "win32"), "the path is not absolute");
+		const file = join(root, "file");
+		await writeFile(file, "not a directory");
+		assert.equal(await getAgentBrowserSocketDirValidationError(file, undefined, "win32"), "the path is not a directory");
+		const link = join(root, "link");
+		await symlink(socketDir, link, process.platform === "win32" ? "junction" : "dir");
+		assert.notEqual(await getAgentBrowserSocketDirValidationError(link, undefined, "win32"), undefined);
+	} finally {
+		await rm(root, { recursive: true, force: true });
+	}
+});
 
 test("resolveSpawnedChildExitCode prefers close, then timeout, then exit fallback", () => {
 	assert.equal(

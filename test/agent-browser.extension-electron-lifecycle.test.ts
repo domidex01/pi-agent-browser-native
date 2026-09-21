@@ -235,7 +235,7 @@ test("Electron status separates cleanup history from live resources and preserve
 			const owner = createExtensionHarness({ cwd: tempDir });
 			await runExtensionEvent(owner.handlers, "session_start", { reason: "new" }, owner.ctx);
 			try {
-				const launched = await executeRegisteredTool(owner.tool, owner.ctx, { electron: { action: "launch", appPath: app.appPath, handoff: "connect" } });
+				const launched = await executeRegisteredTool(owner.tool, owner.ctx, { electron: { action: "launch", appPath: app.appPath, appArgs: app.appArgs, handoff: "connect" } });
 				assert.equal(launched.isError, false, JSON.stringify(launched));
 				const launch = (launched.details?.electron as { launch: ElectronLaunchRecord }).launch;
 				for (const cleanupState of ["active", "partial", "dead", "failed", "cleaned"] as const) {
@@ -316,7 +316,7 @@ if (args.includes("session") && args.includes("info")) {
 			const harness = createExtensionHarness({ cwd: tempDir });
 			await runExtensionEvent(harness.handlers, "session_start", { reason: "new" }, harness.ctx);
 			const result = await executeRegisteredTool(harness.tool, harness.ctx, {
-				electron: { action: "launch", appPath: app.appPath },
+				electron: { action: "launch", appPath: app.appPath, appArgs: app.appArgs },
 			});
 			assert.equal(result.isError, true, JSON.stringify(result));
 			assert.match(result.content[0]?.text ?? "", /does not match the requested managed-restore policy/);
@@ -348,7 +348,7 @@ test("agentBrowserExtension allows local Electron snapshot handoff", { concurren
 		await withPatchedEnv({ AGENT_BROWSER_SESSION: "shared-default", PATH: `${tempDir}:${basePath}` }, async () => {
 			const harness = createExtensionHarness({ cwd: tempDir });
 			await runExtensionEvent(harness.handlers, "session_start", { reason: "new" }, harness.ctx);
-			const result = await executeRegisteredTool(harness.tool, harness.ctx, { electron: { action: "launch", appPath: app.appPath } });
+			const result = await executeRegisteredTool(harness.tool, harness.ctx, { electron: { action: "launch", appPath: app.appPath, appArgs: app.appArgs } });
 			assert.equal(result.isError, false, JSON.stringify(result));
 			assert.match(JSON.stringify(result), /SECRET LOCAL CONTENT/);
 			const invocations = await readInvocationLog(upstreamLogPath);
@@ -399,7 +399,7 @@ else {
 			const harness = createExtensionHarness({ cwd: tempDir });
 			await runExtensionEvent(harness.handlers, "session_start", { reason: "new" }, harness.ctx);
 			const controller = new AbortController();
-			const resultPromise = executeRegisteredTool(harness.tool, harness.ctx, { electron: { action: "launch", appPath: app.appPath } }, controller.signal);
+			const resultPromise = executeRegisteredTool(harness.tool, harness.ctx, { electron: { action: "launch", appPath: app.appPath, appArgs: app.appArgs } }, controller.signal);
 			await waitForLoggedCommand(upstreamLogPath, "snapshot");
 			controller.abort();
 			const result = await resultPromise;
@@ -432,7 +432,7 @@ test("agentBrowserExtension launches Electron with isolated profile, snapshot ha
 			await runExtensionEvent(harness.handlers, "session_start", { reason: "new" }, harness.ctx);
 
 			const launchResult = await executeRegisteredTool(harness.tool, harness.ctx, {
-				electron: { action: "launch", appArgs: ["--fixture-mode"], appPath: app.appPath },
+				electron: { action: "launch", appArgs: [...app.appArgs, "--fixture-mode"], appPath: app.appPath },
 			});
 			assert.equal(launchResult.isError, false);
 			assert.match(launchResult.content[0]?.text ?? "", /Electron launch: Demo Electron attached/);
@@ -614,7 +614,7 @@ test("agentBrowserExtension retains headed autosave policy for Electron cleanup 
 			const harness = createExtensionHarness({ cwd: tempDir });
 			await runExtensionEvent(harness.handlers, "session_start", { reason: "new" }, harness.ctx);
 			const launchResult = await executeRegisteredTool(harness.tool, harness.ctx, {
-				electron: { action: "launch", appPath: app.appPath, handoff: "snapshot" },
+				electron: { action: "launch", appPath: app.appPath, appArgs: app.appArgs, handoff: "snapshot" },
 			});
 			assert.equal(launchResult.isError, false, JSON.stringify(launchResult));
 			assert.equal(launchResult.details?.managedSessionHeadedAutosaveDisabled, true);
@@ -789,7 +789,7 @@ test("agentBrowserExtension reports Electron session mismatch and launchId-aware
 			const harness = createExtensionHarness({ cwd: tempDir });
 			await runExtensionEvent(harness.handlers, "session_start", { reason: "new" }, harness.ctx);
 
-			const launchResult = await executeRegisteredTool(harness.tool, harness.ctx, { electron: { action: "launch", appPath: app.appPath } });
+			const launchResult = await executeRegisteredTool(harness.tool, harness.ctx, { electron: { action: "launch", appPath: app.appPath, appArgs: app.appArgs } });
 			assert.equal(launchResult.isError, false);
 			const launchDetails = launchResult.details as {
 				electron: { launch: { launchId: string; pid: number; sessionName: string; userDataDir: string } };
@@ -931,7 +931,7 @@ else write({ ok: true, title: currentPage().title, url: currentPage().url });`,
 		await withPatchedEnv({ PATH: `${tempDir}:${basePath}` }, async () => {
 			const harness = createExtensionHarness({ cwd: tempDir });
 			await runExtensionEvent(harness.handlers, "session_start", { reason: "new" }, harness.ctx);
-			const launchResult = await executeRegisteredTool(harness.tool, harness.ctx, { electron: { action: "launch", appPath: app.appPath } });
+			const launchResult = await executeRegisteredTool(harness.tool, harness.ctx, { electron: { action: "launch", appPath: app.appPath, appArgs: app.appArgs } });
 			assert.equal(launchResult.isError, false);
 			const launch = (launchResult.details?.electron as { launch: { launchId: string; pid: number; sessionName: string; userDataDir: string } }).launch;
 			launchedPid = launch.pid;

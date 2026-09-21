@@ -130,7 +130,7 @@ if (args.includes("screenshot")) {
 		await withPatchedEnv({
 			AGENT_BROWSER_ALLOW_FILE_ACCESS: "true",
 			AGENT_BROWSER_ARGS: "--disable-web-security",
-			AGENT_BROWSER_CONFIG: "/tmp/agent-browser.json",
+			AGENT_BROWSER_CONFIG: join(tempDir, "agent-browser.json"),
 			PI_AGENT_BROWSER_TEST_PAGE_URL: localUrl,
 			PATH: `${tempDir}:${basePath}`,
 		}, async () => {
@@ -148,7 +148,7 @@ if (args.includes("screenshot")) {
 			assert.equal(invocations.length, 3);
 			assert.equal(invocations[0]?.allowFileAccess, "true");
 			assert.equal(invocations[0]?.rawArgs, "--disable-web-security");
-			assert.equal(invocations[0]?.config, "/tmp/agent-browser.json");
+			assert.equal(invocations[0]?.config, join(tempDir, "agent-browser.json"));
 			assert.ok(invocations.some((entry) => entry.args.includes(artifactPath)));
 		});
 	} finally {

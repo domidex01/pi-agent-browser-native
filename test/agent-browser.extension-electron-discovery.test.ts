@@ -9,7 +9,7 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
-import fsPromises, { chmod, lstat, mkdir, mkdtemp, readFile, realpath, rm, stat, symlink, writeFile, type FileHandle } from "node:fs/promises";
+import fsPromises, { chmod, lstat, mkdir, mkdtemp, readFile, realpath, rename, rm, stat, symlink, writeFile, type FileHandle } from "node:fs/promises";
 import { syncBuiltinESMExports } from "node:module";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
@@ -50,6 +50,7 @@ import {
 	stopTestPid,
 	waitForTestPidExit,
 	writeFakeLaunchableElectronApp,
+	writeFakeElectronProcessApp,
 	writeFakeLinuxElectronBinary,
 	writeFakeMacElectronApp,
 } from "./helpers/extension-validation-fixtures.js";
@@ -69,7 +70,7 @@ test("agentBrowserExtension supports Electron launch handoff modes", { concurren
 				await rm(upstreamLogPath, { force: true });
 				const harness = createExtensionHarness({ cwd: tempDir });
 				await runExtensionEvent(harness.handlers, "session_start", { reason: "new" }, harness.ctx);
-				const result = await executeRegisteredTool(harness.tool, harness.ctx, { electron: { action: "launch", appPath: app.appPath, handoff } });
+				const result = await executeRegisteredTool(harness.tool, harness.ctx, { electron: { action: "launch", appPath: app.appPath, appArgs: app.appArgs, handoff } });
 				assert.equal(result.isError, false, handoff);
 				assert.match(result.content[0]?.text ?? "", handoff === "tabs" ? /safer diagnostic starting point; no interactive refs were captured/ : /Connect handoff completed: run snapshot -i before using interactive refs/);
 				const commands = (await readInvocationLog(upstreamLogPath)).map((entry) => entry.args.find((token) => ["connect", "tab", "snapshot"].includes(token))).filter(Boolean);
@@ -118,7 +119,7 @@ process.stdout.write(JSON.stringify({ success: true, data: { connected: true } }
 		await withPatchedEnv({ PATH: `${tempDir}:${basePath}` }, async () => {
 			const harness = createExtensionHarness({ cwd: tempDir });
 			await runExtensionEvent(harness.handlers, "session_start", { reason: "new" }, harness.ctx);
-			const launchResult = await executeRegisteredTool(harness.tool, harness.ctx, { electron: { action: "launch", appPath: app.appPath, handoff: "connect", targetType: "webview" } });
+			const launchResult = await executeRegisteredTool(harness.tool, harness.ctx, { electron: { action: "launch", appPath: app.appPath, appArgs: app.appArgs, handoff: "connect", targetType: "webview" } });
 			assert.equal(launchResult.isError, false);
 			const launchDetails = launchResult.details as { effectiveArgs: string[]; electron: { launch: { launchId: string; pid: number; userDataDir: string } } };
 			assert.match(launchDetails.effectiveArgs.at(-1) ?? "", /\/devtools\/page\/webview-1$/);
@@ -147,14 +148,14 @@ test("agentBrowserExtension aborts Electron launch before and during app startup
 
 		const alreadyAborted = new AbortController();
 		alreadyAborted.abort();
-		const preLaunchResult = await executeRegisteredTool(harness.tool, harness.ctx, { electron: { action: "launch", appPath: app.appPath } }, alreadyAborted.signal);
+		const preLaunchResult = await executeRegisteredTool(harness.tool, harness.ctx, { electron: { action: "launch", appPath: app.appPath, appArgs: app.appArgs } }, alreadyAborted.signal);
 		assert.equal(preLaunchResult.isError, true);
 		assert.equal(preLaunchResult.details?.failureCategory, "aborted");
 		assert.deepEqual(await readOptionalFakeElectronLaunchLog(launchLogPath), []);
 
 		const midLaunch = new AbortController();
 		const pendingResult = executeRegisteredTool(harness.tool, harness.ctx, {
-			electron: { action: "launch", appPath: app.appPath, timeoutMs: 10_000 },
+			electron: { action: "launch", appPath: app.appPath, appArgs: app.appArgs, timeoutMs: 10_000 },
 		}, midLaunch.signal);
 		let [launch] = await readOptionalFakeElectronLaunchLog(launchLogPath);
 		for (let attempt = 0; !launch && attempt < 100; attempt += 1) {
@@ -188,7 +189,7 @@ test("agentBrowserExtension blocks Electron launch by caller policy without spaw
 			const harness = createExtensionHarness({ cwd: tempDir });
 			await runExtensionEvent(harness.handlers, "session_start", { reason: "new" }, harness.ctx);
 			const result = await executeRegisteredTool(harness.tool, harness.ctx, {
-				electron: { action: "launch", appPath: app.appPath, deny: ["Policy Electron"] },
+				electron: { action: "launch", appPath: app.appPath, appArgs: app.appArgs, deny: ["Policy Electron"] },
 			});
 			assert.equal(result.isError, true);
 			assert.equal(result.details?.failureCategory, "policy-blocked");
@@ -216,7 +217,7 @@ test("agentBrowserExtension cleans Electron resources when launch fails before u
 				const harness = createExtensionHarness({ cwd: tempDir });
 				await runExtensionEvent(harness.handlers, "session_start", { reason: "new" }, harness.ctx);
 				const result = await executeRegisteredTool(harness.tool, harness.ctx, {
-					electron: { action: "launch", appPath: app.appPath, timeoutMs },
+					electron: { action: "launch", appPath: app.appPath, appArgs: app.appArgs, timeoutMs },
 				});
 				assert.equal(result.isError, true, mode);
 				assert.equal(result.details?.failureCategory, expectedCategory, mode);
@@ -258,8 +259,8 @@ test("agentBrowserExtension returns bounded redacted Electron startup output and
 	const stdoutEnd = "\nstdout-end\nAuthorization: Bearer fixture-output-secret\n";
 	const stderrEnd = "\nstderr-end\nAPI_KEY=fixture-error-secret\n";
 	try {
-		const app = await writeFakeMacElectronApp({ applicationsDir: tempDir, bundleId: "com.example.StartupOutput", name: "Startup Output" });
-		await writeFile(app.executablePath, `#!/usr/bin/env node
+		const app = await writeFakeElectronProcessApp({ applicationsDir: tempDir, bundleId: "com.example.StartupOutput", name: "Startup Output" });
+		await writeFile(app.scriptPath, `#!/usr/bin/env node
 const fs = require("node:fs");
 fs.writeFileSync(${JSON.stringify(launchLogPath)}, JSON.stringify([1, 2].map((fd) => {
 	const stats = fs.fstatSync(fd);
@@ -274,7 +275,7 @@ process.exit(42);
 		const harness = createExtensionHarness({ cwd: tempDir });
 		for (const quiet of [false, true]) {
 			const result = await executeRegisteredTool(harness.tool, harness.ctx, {
-				electron: { action: "launch", appPath: app.appPath, appArgs: quiet ? ["--quiet"] : [], timeoutMs: 5_000 },
+				electron: { action: "launch", appPath: app.appPath, appArgs: [...app.appArgs, ...(quiet ? ["--quiet"] : [])], timeoutMs: 5_000 },
 			});
 			assert.equal(result.isError, true);
 			assert.equal(result.details?.failureCategory, "upstream-error");
@@ -292,7 +293,8 @@ process.exit(42);
 				assert.ok(text.includes(quiet ? `App ${stream}: (empty)` : expected));
 			}
 			assert.doesNotMatch(JSON.stringify(result), /fixture-output-secret|fixture-error-secret|dropped-stdout-start|dropped-stderr-start|not captured/);
-			assert.deepEqual(JSON.parse(await readFile(launchLogPath, "utf8")), [{ regular: true, mode: 0o600 }, { regular: true, mode: 0o600 }]);
+			const nativeMode = process.platform === "win32" ? 0o666 : 0o600;
+			assert.deepEqual(JSON.parse(await readFile(launchLogPath, "utf8")), [{ regular: true, mode: nativeMode }, { regular: true, mode: nativeMode }]);
 			assert.ok(failure.userDataDir);
 			await assert.rejects(stat(failure.userDataDir), { code: "ENOENT" });
 			assert.equal(isTestPidAlive(failure.diagnostics?.pid), false);
@@ -305,8 +307,8 @@ process.exit(42);
 test("failed Electron startup preserves a live writer after injected kill denial, temp cleanup, and host exit", { concurrency: false }, async () => {
 	const tempDir = await mkdtemp(join(tmpdir(), "pi-agent-browser-electron-live-output-"));
 	const launchLogPath = join(tempDir, "launch.json");
-	const app = await writeFakeMacElectronApp({ applicationsDir: tempDir, bundleId: "com.example.LiveOutput", name: "Live Output" });
-	await writeFile(app.executablePath, `#!/usr/bin/env node
+	const app = await writeFakeElectronProcessApp({ applicationsDir: tempDir, bundleId: "com.example.LiveOutput", name: "Live Output" });
+	await writeFile(app.scriptPath, `#!/usr/bin/env node
 const fs = require("node:fs");
 const path = require("node:path");
 const userDataDir = process.argv.find((arg) => arg.startsWith("--user-data-dir=")).slice("--user-data-dir=".length);
@@ -332,7 +334,7 @@ setInterval(() => { fs.writeSync(1, "stdout-live\\n"); fs.writeSync(2, "stderr-l
 					if (this.spawnfile === ${JSON.stringify(app.executablePath)}) throw new Error("fixture: child.kill denied");
 					return kill.call(this, signal);
 				};
-				const result = await launchElectronApp({ appPath: ${JSON.stringify(app.appPath)}, appArgs: ${JSON.stringify(breakMarker ? ["--break-marker"] : [])}, timeoutMs: 500 });
+				const result = await launchElectronApp({ appPath: ${JSON.stringify(app.appPath)}, appArgs: ${JSON.stringify([...app.appArgs, ...(breakMarker ? ["--break-marker"] : [])])}, timeoutMs: 500 });
 				ChildProcess.prototype.kill = kill;
 				const siblingKept = await stat(sibling).then(() => true, () => false);
 				await cleanupSecureTempArtifacts();
@@ -386,7 +388,7 @@ setInterval(() => { fs.writeSync(1, "stdout-live\\n"); fs.writeSync(2, "stderr-l
 
 test("Electron capture closes real file handles and retains startup errors when capture or spawn fails", { concurrency: false }, async (t) => {
 	const tempDir = await mkdtemp(join(tmpdir(), "pi-agent-browser-electron-capture-errors-"));
-	const app = await writeFakeMacElectronApp({ applicationsDir: tempDir, bundleId: "com.example.CaptureErrors", name: "Capture Errors" });
+	const app = await writeFakeElectronProcessApp({ applicationsDir: tempDir, bundleId: "com.example.CaptureErrors", name: "Capture Errors" });
 	const nativeOpen = fsPromises.open;
 	const handles: FileHandle[] = [];
 	let fault: "open-stderr" | "spawn-sync" | "spawn-async" | "read-stdout";
@@ -396,16 +398,18 @@ test("Electron capture closes real file handles and retains startup errors when 
 		if (fault === "read-stdout" && path.endsWith("stdout.log") && args[1] === "r") throw new Error("fixture: cannot read stdout capture");
 		const handle = await nativeOpen(...args);
 		if (path.endsWith("stdout.log") || path.endsWith("stderr.log")) handles.push(handle);
+		// Remove the verified executable only after discovery, before native spawn.
+		if (fault === "spawn-async" && path.endsWith("stderr.log") && args[1] === "wx") await rename(app.executablePath, `${app.executablePath}.held`);
 		return handle;
 	});
 	syncBuiltinESMExports();
 	try {
 		for (fault of ["open-stderr", "spawn-sync", "spawn-async", "read-stdout"] as const) {
 			handles.length = 0;
-			await writeFile(app.executablePath, fault === "spawn-async" ? "#!/does-not-exist/piab-node\n" : "#!/usr/bin/env node\nprocess.exit(42);\n");
+			await writeFile(app.scriptPath, "process.exit(42);\n");
 			const harness = createExtensionHarness({ cwd: tempDir });
 			const result = await executeRegisteredTool(harness.tool, harness.ctx, {
-				electron: { action: "launch", appPath: app.appPath, appArgs: fault === "spawn-sync" ? ["bad\0argument"] : [], timeoutMs: 5_000 },
+				electron: { action: "launch", appPath: app.appPath, appArgs: [...app.appArgs, ...(fault === "spawn-sync" ? ["bad\0argument"] : [])], timeoutMs: 5_000 },
 			});
 			assert.equal(result.isError, true, fault);
 			const failure = (result.details?.electron as { failure: ElectronLaunchFailure }).failure;
@@ -415,7 +419,10 @@ test("Electron capture closes real file handles and retains startup errors when 
 			assert.ok(handles.every((handle) => handle.fd === -1), `${fault}: all acquired native capture/read handles must close`);
 			if (fault === "open-stderr") assert.match(failure.error, /cannot open stderr capture/);
 			if (fault === "spawn-sync") assert.match(failure.error, /null bytes/);
-			if (fault === "spawn-async") assert.match(failure.error, /ENOENT/);
+			if (fault === "spawn-async") {
+				await rename(`${app.executablePath}.held`, app.executablePath);
+				assert.match(failure.error, /ENOENT/);
+			}
 			if (fault === "read-stdout") {
 				assert.equal(failure.diagnostics?.exitCode, 42);
 				assert.equal(failure.diagnostics?.stdoutTail, undefined);
@@ -453,7 +460,7 @@ test("agentBrowserExtension cleans Electron resources when upstream connect cann
 		await withPatchedEnv({ PATH: isolatedPath }, async () => {
 			const harness = createExtensionHarness({ cwd: tempDir });
 			await runExtensionEvent(harness.handlers, "session_start", { reason: "new" }, harness.ctx);
-			const result = await executeRegisteredTool(harness.tool, harness.ctx, { electron: { action: "launch", appPath: app.appPath } });
+			const result = await executeRegisteredTool(harness.tool, harness.ctx, { electron: { action: "launch", appPath: app.appPath, appArgs: app.appArgs } });
 			assert.equal(result.isError, true);
 			assert.equal(result.details?.failureCategory, "missing-binary");
 			assert.match(result.content[0]?.text ?? "", /Electron cleanup after failed attach/);
@@ -473,13 +480,15 @@ test("Electron profile status measures the current path without changing the lau
 	const absent = join(tempDir, "removed");
 	const dangling = join(tempDir, "dangling");
 	const parentFile = join(tempDir, "not-a-directory");
-	const unknown = join(parentFile, "profile");
+	// Windows reports ENOENT for a file used as a parent; a NUL path instead
+	// exercises a genuine non-ENOENT native path error on that host.
+	const unknown = process.platform === "win32" ? `${parentFile}\0` : join(parentFile, "profile");
 	try {
 		await mkdir(present);
 		await mkdir(absent);
 		await rm(absent, { recursive: true });
 		await writeFile(parentFile, "file");
-		await assert.rejects(lstat(unknown), { code: "ENOTDIR" });
+		await assert.rejects(lstat(unknown), { code: process.platform === "win32" ? "ERR_INVALID_ARG_VALUE" : "ENOTDIR" });
 		if (process.platform !== "win32") {
 			await symlink(absent, dangling);
 			assert.equal((await lstat(dangling)).isSymbolicLink(), true);
@@ -554,7 +563,7 @@ test("agentBrowserExtension restores Electron launch records and cleans them on 
 		await withPatchedEnv({ PATH: `${tempDir}:${basePath}` }, async () => {
 			const firstHarness = createExtensionHarness({ cwd: tempDir });
 			await runExtensionEvent(firstHarness.handlers, "session_start", { reason: "new" }, firstHarness.ctx);
-			const launchResult = await executeRegisteredTool(firstHarness.tool, firstHarness.ctx, { electron: { action: "launch", appPath: app.appPath, handoff: "connect" } });
+			const launchResult = await executeRegisteredTool(firstHarness.tool, firstHarness.ctx, { electron: { action: "launch", appPath: app.appPath, appArgs: app.appArgs, handoff: "connect" } });
 			assert.equal(launchResult.isError, false);
 			const launch = (launchResult.details?.electron as { launch: { launchId: string; pid: number; userDataDir: string } }).launch;
 			launchedPid = launch.pid;
@@ -688,30 +697,30 @@ test("electron discovery scans Linux desktop files and applies Electron evidence
 Type=Application
 Name=Demo Electron
 Comment=Demo comment
-Exec=${electronExecutable} %U --ignored-field-code %F
+Exec=${JSON.stringify(electronExecutable)} %U --ignored-field-code %F
 Icon=demo-icon
 `, "utf8");
 		await writeFile(join(desktopDir, "plain.desktop"), `[Desktop Entry]
 Type=Application
 Name=Plain Binary
-Exec=${plainExecutable} %U
+Exec=${JSON.stringify(plainExecutable)} %U
 `, "utf8");
 		await writeFile(join(desktopDir, "hidden.desktop"), `[Desktop Entry]
 Type=Application
 Name=Hidden Electron
 Hidden=true
-Exec=${electronExecutable}
+Exec=${JSON.stringify(electronExecutable)}
 `, "utf8");
 		await writeFile(join(desktopDir, "nodisplay.desktop"), `[Desktop Entry]
 Type=Application
 Name=No Display Electron
 NoDisplay=true
-Exec=${electronExecutable}
+Exec=${JSON.stringify(electronExecutable)}
 `, "utf8");
 		await writeFile(join(desktopDir, "link.desktop"), `[Desktop Entry]
 Type=Link
 Name=Link Electron
-Exec=${electronExecutable}
+Exec=${JSON.stringify(electronExecutable)}
 `, "utf8");
 
 		const result = await discoverElectronApps({
@@ -734,7 +743,7 @@ Exec=${electronExecutable}
 		await writeFile(join(desktopDir, "symlink.desktop"), `[Desktop Entry]
 Type=Application
 Name=Symlink Electron
-Exec=${symlinkPath}
+Exec=${JSON.stringify(symlinkPath)}
 `, "utf8");
 		const symlinkResult = await discoverElectronApps({
 			locations: { linuxDesktopDirectories: [desktopDir], pathEnv: "" },

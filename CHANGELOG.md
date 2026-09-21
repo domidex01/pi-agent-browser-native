@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## 0.6.16 - 2026-09-21
+
+### Fixed
+
+- Validate explicit Windows socket directories using native directory semantics instead of requiring POSIX ownership metadata.
+- Start the config CLI correctly on Windows and encoded or symlinked paths using Node's native entrypoint identity, while keeping module imports silent.
+- Redact bearer credentials followed by Windows path separators in diagnostic text.
+
 ## 0.6.15 - 2026-09-18
 
 ### Fixed

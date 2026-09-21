@@ -285,8 +285,23 @@ async function socketDirEntriesAreOwned(socketDir: string, uid: number, visited 
 export async function getAgentBrowserSocketDirValidationError(
 	socketDir: string,
 	uid: number | undefined = typeof process.getuid === "function" ? process.getuid() : undefined,
+	platform: NodeJS.Platform = processPlatform,
 ): Promise<string | undefined> {
 	if (!isAbsolute(socketDir)) return "the path is not absolute";
+	// Windows uses native ACLs and named pipes, not POSIX uid/mode metadata.
+	// Still require a real directory; never accept a file or a redirected root.
+	if (platform === "win32") {
+		try {
+			try { await mkdir(socketDir); } catch (error) {
+				if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+			}
+			const metadata = await lstat(socketDir);
+			if (metadata.isSymbolicLink()) return "the directory is a symlink";
+			return metadata.isDirectory() ? undefined : "the path is not a directory";
+		} catch (error) {
+			return `the directory could not be inspected (${(error as NodeJS.ErrnoException).code ?? "unknown error"})`;
+		}
+	}
 	if (typeof uid !== "number") return "POSIX ownership metadata is unavailable";
 	try {
 		if (!await hasTrustedSocketDirAncestry(socketDir, uid)) return "an ancestor is writable, foreign-owned, a non-directory, or an untrusted symlink";

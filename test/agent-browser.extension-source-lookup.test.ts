@@ -150,7 +150,7 @@ process.stdin.on("end", () => {
 			const harness = createExtensionHarness({ cwd: tempDir });
 			await runExtensionEvent(harness.handlers, "session_start", { reason: "new" }, harness.ctx);
 
-			const launchResult = await executeRegisteredTool(harness.tool, harness.ctx, { electron: { action: "launch", appPath: app.appPath } });
+			const launchResult = await executeRegisteredTool(harness.tool, harness.ctx, { electron: { action: "launch", appPath: app.appPath, appArgs: app.appArgs } });
 			assert.equal(launchResult.isError, false);
 			const launch = (launchResult.details?.electron as { launch: { appPath?: string; executablePath?: string; launchId: string; sessionName: string; userDataDir: string } }).launch;
 

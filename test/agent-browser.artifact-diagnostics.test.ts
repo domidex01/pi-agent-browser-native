@@ -259,7 +259,7 @@ for (const subcommand of ["start", "restart"]) {
 				const path = join(root, "capture.webm");
 				const step = ["record", subcommand, "--fps", "30", path];
 				if (mode === "raw") await writeFile(join(root, "raw-steps.json"), JSON.stringify([step]));
-				const params = mode === "direct" ? { args: step } : mode === "stdin" ? { args: ["batch"], stdin: JSON.stringify([step]) } : { args: ["batch", step.join(" ")] };
+				const params = mode === "direct" ? { args: step } : mode === "stdin" ? { args: ["batch"], stdin: JSON.stringify([step]) } : { args: ["batch", step.map(value => JSON.stringify(value)).join(" ")] };
 				const result = await executeRegisteredTool(harness.tool, harness.ctx, { ...params, outputPath: path });
 				assert.equal(result.isError, true);
 				assert.equal(result.details?.failureCategory, "validation-error");
@@ -293,7 +293,7 @@ test("registered artifacts retain requested and reported paths without new argv 
 			const artifact = (result.details?.artifacts as FileArtifactMetadata[])[0];
 			assert.equal(artifact.requestedPath, requestedPath);
 			const reportedPath = step[0] === "download" || requestedPath.includes("canonical") ? await realpath(requestedPath) : requestedPath;
-			assert.ok([artifact.absolutePath, artifact.tempPath].includes(reportedPath));
+			assert.ok([artifact.absolutePath, artifact.tempPath].includes(reportedPath), JSON.stringify({ artifact, reportedPath, args }));
 			assert.ok((result.content[0]?.text ?? "").includes(`Requested path: ${requestedPath}`));
 			assert.ok((result.content[0]?.text ?? "").includes(reportedPath));
 			if (step[0] === "screenshot") assert.match(JSON.stringify(result.content), /"mimeType":"image\/png"/);

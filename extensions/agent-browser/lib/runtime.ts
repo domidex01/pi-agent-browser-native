@@ -335,7 +335,7 @@ function redactBearerCredentials(text: string): string {
 			if (field && !isSensitiveFieldName(field)) return match;
 			return formatRedactedCredential(label, credential, trailing);
 		})
-		.replace(/\b(Bearer)\s+([^\s"',)\[\]]+)([),.]?)/gi, (match, label: string, credential: string, trailing: string) => {
+		.replace(/\b(Bearer)\s+([^\s\\"',)\[\]]+)([),.]?)/gi, (match, label: string, credential: string, trailing: string) => {
 			// Without a credential field/header, require a bearer-token shape, not prose, HTML or a URL.
 			const token = credential.slice(0, credential.length - credentialTrailingPunctuation(credential).length);
 			if (!/^[A-Za-z0-9._~+/-]+=*$/.test(token) || !/[0-9._~+/=-]/.test(token)) return match;
