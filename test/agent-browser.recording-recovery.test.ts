@@ -66,7 +66,10 @@ function execute(row) {
 let output;
 if (tokens[0] === 'batch') {
   const raw = tokens.slice(1).filter(value => value !== '--bail');
-  const rows = raw.length ? raw.map(row => row.split(' ')) : JSON.parse(stdin);
+  const rows = raw.length ? raw.map(row => {
+    const quotedStart = /^record start (".*")$/.exec(row);
+    return quotedStart ? ['record', 'start', JSON.parse(quotedStart[1])] : row.split(' ');
+  }) : JSON.parse(stdin);
   output = [];
   for (const command of rows) {
     try { const result = execute(command); if (result === undefined) break; output.push({ command, success: true, result }); }
@@ -227,7 +230,7 @@ for (const mode of ["timeout", "stale-batch"]) {
 	test(`timed-out raw recording batch keeps receipt evidence without claiming other steps succeeded: ${mode}`, { concurrency: false }, async () => {
 		await withRecorder(mode, async ({ root, logPath, harness, prefix }) => {
 			const path = join(root, "raw.webm"), outputPath = join(root, "batch-receipt.json");
-			const result = await executeRegisteredTool(harness.tool, harness.ctx, { args: [...prefix, "batch", `record start ${path}`, "record stop"], stdin: JSON.stringify([["record", "start", join(root, "ignored.webm")], ["record", "stop"]]), timeoutMs: 200, outputPath });
+			const result = await executeRegisteredTool(harness.tool, harness.ctx, { args: [...prefix, "batch", `record start ${JSON.stringify(path)}`, "record stop"], stdin: JSON.stringify([["record", "start", join(root, "ignored.webm")], ["record", "stop"]]), timeoutMs: 200, outputPath });
 			assert.equal(result.isError, true, "a recording receipt cannot prove all timed-out batch steps succeeded");
 			const exported = JSON.parse(await readFile(outputPath, "utf8"));
 			assert.equal(exported.recordingRecovery.expected.absolutePath, path);

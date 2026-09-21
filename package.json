@@ -70,6 +70,7 @@
     "@earendil-works/pi-tui": "0.86.1",
     "@types/cross-spawn": "6.0.6",
     "@types/node": "^25.9.3",
+    "@types/which": "2.0.2",
     "tsx": "^4.21.0",
     "typebox": "^1.1.38",
     "typescript": "^6.0.3"
@@ -115,6 +116,8 @@
     }
   },
   "dependencies": {
-    "cross-spawn": "7.0.6"
+    "cross-spawn": "7.0.6",
+    "path-key": "3.1.1",
+    "which": "2.0.2"
   }
 }

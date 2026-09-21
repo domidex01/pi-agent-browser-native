@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { writeFileSync } from "node:fs";
-import { chmod, mkdir, mkdtemp, readFile, rename, rm } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -810,10 +810,13 @@ else process.stdout.write(JSON.stringify({ success: true, data: Array.from({ len
 test("script still runs fail-closed cleanup when the main browser command never starts", { concurrency: false }, async () => {
 	const tempDir = await mkdtemp(join(tmpdir(), "pi-agent-browser-script-preflight-"));
 	const logPath = join(tempDir, "invocations.log");
-	const socketDir = join(tempDir, "a".repeat(80));
+	// Windows has no Unix socket byte limit; use a real artifact mkdir failure there.
+	const socketDir = join(tempDir, process.platform === "win32" ? "socket" : "a".repeat(80));
+	const args = process.platform === "win32" ? ["screenshot", "not-a-directory/out.png"] : ["open", "https://example.test/"];
 	const basePath = process.env.PATH ?? "";
 	await mkdir(socketDir, { recursive: true });
 	await chmod(socketDir, 0o700);
+	if (process.platform === "win32") await writeFile(join(tempDir, "not-a-directory"), "existing file");
 	await writeFakeAgentBrowserBinary(tempDir, `const fs = require("node:fs");
 fs.appendFileSync(${JSON.stringify(logPath)}, JSON.stringify({ args: process.argv.slice(2) }) + "\\n");
 process.stdout.write(JSON.stringify({ success: true, data: { title: "should not run" } }));`);
@@ -822,16 +825,16 @@ process.stdout.write(JSON.stringify({ success: true, data: { title: "should not 
 			const harness = createExtensionHarness({ cwd: tempDir, sessionFile: join(tempDir, "session.jsonl") });
 			await runExtensionEvent(harness.handlers, "session_start", { reason: "new" }, harness.ctx);
 			const result = await executeRegisteredTool(harness.tool, harness.ctx, {
-				script: `emit(await browser({ args: ["open", "https://example.test/"] }));`,
+				script: `emit(await browser({ args: ${JSON.stringify(args)} }));`,
 			});
 			assert.equal(result.isError, false, JSON.stringify(result));
 			assert.equal((result.details?.data as { ok?: boolean } | undefined)?.ok, false);
 			assert.equal((result.details?.data as { failureCategory?: string } | undefined)?.failureCategory, "validation-error");
-			assert.match((result.details?.data as { error?: string } | undefined)?.error ?? "", /Unix socket path would be/);
+			assert.match((result.details?.data as { error?: string } | undefined)?.error ?? "", process.platform === "win32" ? /writable artifact path whose parent components are directories/ : /Unix socket path would be/);
 			assert.equal((result.details?.scriptSession as { cleanup?: string } | undefined)?.cleanup, "closed");
 			assert.deepEqual(harness.appendedEntries.map((entry) => (entry.data as { cleanup?: string }).cleanup), ["active", "closed"]);
 			const invocations = await readInvocationLog(logPath);
-			assert.equal(invocations.some((entry) => entry.args.includes("open")), false);
+			assert.equal(invocations.some((entry) => entry.args.includes(args[0])), false);
 			assert.ok(invocations.some((entry) => entry.args.includes("close")), "cleanup must close helpers that could have started the isolated browser");
 		});
 	} finally {

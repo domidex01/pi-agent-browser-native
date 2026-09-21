@@ -40,7 +40,7 @@ if (tokens[0] === 'batch') {
 } else if (tokens[0] === 'eval' && tokens[1] === '--no-sandbox') {
   process.stdout.write(JSON.stringify({ success: false, error: 'Native fixture evaluation error' }));
   process.exitCode = 1;
-} else process.stdout.write(JSON.stringify({ success: true, data: data(tokens) }));`);
+} else process.stdout.write(JSON.stringify({ success: true, data: data(tokens) }));`, "linux"); // Intentional shell-free shebang fixture; stock CMD transport has separate native coverage.
 	try {
 		await withPatchedEnv({ PATH: `${root}${delimiter}${process.env.PATH ?? ""}`, PI_AGENT_BROWSER_TEST_CUSTOM_VERSION: "1" }, async () => {
 			const harness = createExtensionHarness({ cwd: root });

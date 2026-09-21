@@ -42,9 +42,9 @@ function execute(row) {
     return { path: row[2], restarted: subcommand === 'restart' };
   }
   if (command === 'screenshot' || command === 'download' || command === 'network') {
-    const output = command === 'download' ? row[2] : command === 'network' ? row[3] : row[1];
+    const output = command === 'download' ? row[2] : command === 'network' ? row[3] : row[2] ?? row[1];
     fs.writeFileSync(output, command === 'screenshot' ? Buffer.from(${JSON.stringify(png.toString("base64"))}, 'base64') : '{}');
-    return { path: command === 'download' || output.includes('canonical') ? fs.realpathSync(output) : output };
+    return { path: command === 'download' || output.includes('canonical') ? fs.realpathSync.native(output) : output };
   }
   if (command === 'snapshot') return { origin: ${JSON.stringify(pageUrl)}, snapshot: '- textbox "Name" [ref=e1]', refs: { e1: { role: 'textbox', name: 'Name' } } };
   if (command === 'eval') return { result: { status: 'no-anchor' } };
@@ -285,7 +285,8 @@ test("registered artifacts retain requested and reported paths without new argv 
 		const canonicalRoot = await realpath(root);
 		const lexicalRoot = process.platform === "darwin" ? canonicalRoot.replace(/^\/private\/tmp\//, "/tmp/") : root;
 		if (process.platform === "darwin") assert.notEqual(lexicalRoot, canonicalRoot, "exercise the native /tmp alias");
-		for (const step of [["screenshot", "screen.png"], ["screenshot", "canonical.png"], ["screenshot", "png.webm"], ["download", "#download", "download.txt"], ["network", "har", "stop", "network.har"]]) {
+		// Native screenshot's two-operand form disambiguates a non-image extension on Windows.
+		for (const step of [["screenshot", "screen.png"], ["screenshot", "canonical.png"], ["screenshot", "body", "png.webm"], ["download", "#download", "download.txt"], ["network", "har", "stop", "network.har"]]) {
 			const requestedPath = join(lexicalRoot, step.at(-1)!);
 			const args = [...step.slice(0, -1), requestedPath];
 			const result = await executeRegisteredTool(harness.tool, harness.ctx, { args });

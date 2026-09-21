@@ -45,7 +45,7 @@ function pidIsAlive(pid: number | undefined): boolean {
 }
 
 function spawnElectronFixtureProcess(userDataDir: string): ChildProcess {
-	const child = spawn("/bin/sh", ["-c", "while true; do sleep 1; done", "pi-agent-browser-electron-fixture", `--user-data-dir=${userDataDir}`], { detached: true, stdio: "ignore" });
+	const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)", "--", `--user-data-dir=${userDataDir}`], { detached: process.platform !== "win32", stdio: "ignore" });
 	child.unref();
 	return child;
 }
@@ -1368,7 +1368,7 @@ process.stdout.write(JSON.stringify({ success: true, data }));`);
 	} finally {
 		if (child?.pid && child.exitCode === null && child.signalCode === null) {
 			const exited = once(child, "exit");
-			process.kill(-child.pid, "SIGKILL");
+			child.kill("SIGKILL");
 			await exited;
 		}
 		await new Promise<void>((resolve) => server.close(() => resolve()));
@@ -2979,7 +2979,9 @@ if (args.includes("snapshot")) {
 
 			// Upstream-effective raw artifact rows get parent directories prepared.
 			const rawScreenshot = await executeRegisteredTool(harness.tool, harness.ctx, {
-				args: ["batch", `screenshot ${join(tempDir, "raw", "dir", "shot.png")}`, "wait 10"],
+				// Native batch raw rows use shell-word syntax on every OS: quote
+				// backslashes/spaces rather than passing an unquoted Windows path.
+				args: ["batch", `screenshot '${join(tempDir, "raw", "dir", "shot.png").replaceAll("'", "'\\''")}'`, "wait 10"],
 			});
 			assert.equal(rawScreenshot.isError, false, JSON.stringify(rawScreenshot));
 			assert.equal(await directoryExists(join(tempDir, "raw", "dir")), true);

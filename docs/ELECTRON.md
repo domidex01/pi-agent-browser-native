@@ -184,7 +184,9 @@ Output appears under `details.electron.probe`: `title`, `url`, `focusedElement`,
 
 ### `electron.cleanup` — wrapper-owned only
 
-Closes the tracked managed session, stops only the wrapper-tracked process, verifies that the debug port no longer serves `/json/version`, and removes the wrapper-created `userDataDir`. Cleanup partial failures fail the tool result with `failureCategory: "cleanup-failed"` and the `retry-electron-cleanup` next action references the same `launchId` so retries are bounded.
+Closes the tracked managed session, stops only the wrapper-tracked process, verifies that the debug port no longer serves `/json/version`, and removes the wrapper-created `userDataDir`. Cleanup waits for actual exit when it has a tracked child handle. For a live restored PID without that handle, it first checks the native process command line for the recorded profile: `Win32_Process.CommandLine` through Windows PowerShell on Windows, or `ps` on POSIX. If inspection fails or the profile does not match, cleanup leaves the process and profile intact.
+
+Cleanup partial failures fail the tool result with `failureCategory: "cleanup-failed"` and the `retry-electron-cleanup` next action references the same `launchId` so retries are bounded.
 
 ```json
 { "electron": { "action": "cleanup", "launchId": "electron-…" } }
@@ -313,7 +315,7 @@ Policy mismatches fail with `failureCategory: "policy-blocked"` and `details.ele
 
 Failed startup diagnostics include `outputCaptured`, `stdoutTail` / `stderrTail`, and `stdoutTruncated` / `stderrTruncated`. Each tail reads at most the last **4096 source bytes** before UTF-8 decoding and normal credential redaction, and appears in both visible failure text and structured details. Empty output is reported explicitly; `stdoutError` / `stderrError` report capture-read or close errors without replacing the original startup reason, exit status, or cleanup warning.
 
-The app writes to mode-0600 `stdout.log` and `stderr.log` inside its isolated profile. These are regular files, not pipes to Pi, so retained apps can keep writing after reload or host exit. Logs follow profile preservation and removal; **the read limit is not a lifetime disk limit**. If failed-startup process cleanup cannot finish, the profile and logs are protected from general temp cleanup. Any failure to persist that protection appears alongside the original `failure.cleanupError`; in-memory protection remains. Use the reported PID and profile path to resolve that failed cleanup before removing files.
+The app writes to mode-0600 `stdout.log` and `stderr.log` inside its isolated profile. Regular-file capture lets a retained app keep writing independently of Pi's output streams. POSIX launches are detached and can outlive the host; Windows launches remain host-owned and stop when the host exits. Preserved logs survive either outcome. Logs follow profile preservation and removal; **the read limit is not a lifetime disk limit**. If failed-startup process cleanup cannot finish, the profile and logs are protected from general temp cleanup. Any failure to persist that protection appears alongside the original `failure.cleanupError`; in-memory protection remains. Use the reported PID and profile path to resolve that failed cleanup before removing files.
 
 Single-instance Electron behavior is a common cause of `timeout` and `upstream-error`. Many Electron apps enforce a single running instance and silently drop a second invocation's `--remote-debugging-port` flag. If the app is already running without a debug port, quit it first or use the manual host-launch path against the existing instance instead.
 

@@ -65,6 +65,8 @@ process.stdout.write(JSON.stringify({ success: true, data }));`);
 			PATH: `${root}${delimiter}${process.env.PATH ?? ""}`,
 			HOME: home,
 			USERPROFILE: home,
+			// Exercise enabled automatic restore on Windows as well as POSIX.
+			AGENT_BROWSER_ENCRYPTION_KEY: "a".repeat(64),
 			AGENT_BROWSER_NAMESPACE: "",
 			AGENT_BROWSER_CONFIG: undefined,
 			PI_AGENT_BROWSER_SOCKET_DIR: join(root, "s"),

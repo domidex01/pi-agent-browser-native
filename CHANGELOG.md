@@ -9,6 +9,15 @@
 - Validate explicit Windows socket directories using native directory semantics instead of requiring POSIX ownership metadata.
 - Start the config CLI correctly on Windows and encoded or symlinked paths using Node's native entrypoint identity, while keeping module imports silent.
 - Redact bearer credentials followed by Windows path separators in diagnostic text.
+- Await Windows process-tree termination before returning from browser timeouts or cancellation.
+- Preserve literal newlines through agent-browser's recognized global npm Windows CMD launcher by invoking that installation's native executable directly; custom and unrecognized launchers retain their existing behavior.
+- Allow ten seconds for native Windows process-identity queries, including PowerShell startup, while preserving the identity format and five-second POSIX budget.
+- Await tracked Electron process exit before removing its profile and reporting cleanup complete.
+- Inspect native Windows process command lines when verifying ownership of restored Electron launches.
+- Recognize native Windows absolute checkout paths when checking for duplicate extension sources.
+- Recheck released managed-session policy claims after PID inspection so a completed owner does not leave a stale busy result.
+- Refresh transient choosing tickets so a later managed-session contender cannot block its predecessor after publishing its ticket.
+- Retry native Windows open-file rename conflicts during owned policy-claim cleanup, with token revalidation and a fresh one-second retry window even after long browser shutdowns.
 
 ## 0.6.15 - 2026-09-18
 

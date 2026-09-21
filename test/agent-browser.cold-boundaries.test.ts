@@ -111,6 +111,8 @@ process.exitCode = failed ? 1 : 0;
 		await withPatchedEnv({
 			PATH: `${root}${delimiter}${process.env.PATH ?? ""}`,
 			HOME: home, USERPROFILE: home, AGENT_BROWSER_NAMESPACE: "",
+			// Automatic restore requires upstream encryption on Windows; this is fixture data only.
+			AGENT_BROWSER_ENCRYPTION_KEY: "a".repeat(64),
 			PI_AGENT_BROWSER_SOCKET_DIR: join(root, "s"),
 			PI_AGENT_BROWSER_MANAGED_SESSION_RESTORE: options.restoreDisabled ? "0" : undefined,
 			PI_AGENT_BROWSER_TEST_CUSTOM_SESSION_INFO: "1",
@@ -173,7 +175,7 @@ for (const state of ["cold", "known", "unknown", "reopen"]) {
 			try { timedOut = await page.call({ args, timeoutMs: 800 }); }
 			finally { await page.patch({ timeoutInfo: false }); }
 			assert.equal(timedOut.isError, true);
-			assert.equal(timedOut.details?.exitCode, 124);
+			assert.equal(timedOut.details?.exitCode, process.platform === "win32" ? 1 : 124);
 			assert.equal(timedOut.details?.timedOut, true);
 			assert.equal(timedOut.details?.failureCategory, "timeout");
 			assert.deepEqual((await page.calls()).slice(offset).map(row => row.args), [["--json", ...args]]);

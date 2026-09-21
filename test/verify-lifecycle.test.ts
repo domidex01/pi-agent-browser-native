@@ -8,7 +8,7 @@
 
 import assert from "node:assert/strict";
 import { execFile as execFileCallback } from "node:child_process";
-import { appendFile, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { appendFile, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -277,7 +277,9 @@ test("lifecycle wait discovers the initial transcript for observed open validati
 			describe: "initial open", sessionDir: directory, timeoutMs: 2000, sinceCount: 0,
 			predicate: (result) => matchesSuccessfulPageResult(result, "open", "https://react.dev/"),
 		});
-		assert.equal(opened.sessionFile, sessionFile);
+		// Native find may return mixed separators; assert the discovered file's identity, not its spelling.
+		assert.equal(await realpath(opened.sessionFile), await realpath(sessionFile));
+		assert.equal(matchesSuccessfulPageResult(opened.result, "open", "https://react.dev/"), true);
 	} finally {
 		await rm(directory, { force: true, recursive: true });
 	}

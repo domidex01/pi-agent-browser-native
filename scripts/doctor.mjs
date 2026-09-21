@@ -11,7 +11,7 @@ import { execFile as execFileCallback } from "node:child_process";
 import { realpathSync } from "node:fs";
 import { access, readFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { dirname, resolve, sep } from "node:path";
+import { dirname, isAbsolute, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 
@@ -155,7 +155,7 @@ function expandUserPath(path) {
 }
 
 function isPathLikeSource(source) {
-	return source.startsWith("/") || source.startsWith("./") || source.startsWith("../") || source.startsWith("~");
+	return isAbsolute(source) || source.startsWith("./") || source.startsWith("../") || source.startsWith("~");
 }
 
 function sourceLooksLikeThisPackage(source, cwd, sourceBaseDir = cwd) {
