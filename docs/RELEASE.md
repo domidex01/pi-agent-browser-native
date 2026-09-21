@@ -17,6 +17,14 @@ Related docs:
 
 Provide one concrete maintainer workflow for validating repo state, package contents, and install guidance before publishing `pi-agent-browser-native`.
 
+## Current 0.6.16 rollout waiver
+
+The owner's 2026-09-21 **“waive windows”** instruction makes Windows qualification nonblocking for this rollout, even with available runners, and supersedes older mandatory-Windows/no-waiver wording below and in platform guidance. Preserve failed diagnostics; do not claim a Windows full-suite pass or continue Windows repair experiments. Known policy-lock/restored Electron failures and bounded repeat results are tracked in [#191](https://github.com/fitchmultz/pi-agent-browser-native/issues/191) and the [current support matrix](SUPPORT_MATRIX.md#current-0616-rollout).
+
+Linux/macOS, declared Node floors, official/fork host and consumer-artifact checks, and Native checkpoint Linux remain required. All three final reviewers (reviewer-gpt, reviewer-ponytail, reviewer-claude) must approve before merge, release or activation. Version 0.6.16 remains unpublished. This waiver changes neither runtime nor the composed `release`/`prepublishOnly` scripts: record individually satisfied gates and the explicit Windows waiver, never label the full composition passed.
+
+For this docs/workflow-only delivery, reuse the retained real Pi/Electron/lifecycle/live-site and Mac/Linux evidence only after proving all 104 rebuilt runtime files and runtime/package/test sources unchanged from `3a9adf490883149e7f79ee070d1900877e17b891`. The checkout-only Pi precommit rule applies to code changes; this delta does not require another paid/model or live-browser run. Published documentation changes do require a **new retained tarball** checked by normal `verify-package.mjs --smoke-pi`, including runtime-only SDK and actual CLI loading, with every member hashed and compared to the previous artifact. After final authorization, publish only those exact checked bytes without repacking; the older artifact is held, not the publication candidate.
+
 ## Pre-release checks
 
 From the repository root:

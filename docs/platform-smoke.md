@@ -2,7 +2,9 @@
 
 `pi-agent-browser-native` uses a Crabbox-backed local platform smoke gate to prove the package on macOS, Ubuntu Linux, and native Windows before release.
 
-This is a release-blocking gate. Missing setup is not a skipped pass. When a maintainer approves an [alternate native transport](#alternate-native-transports), it must prove the same target-local suites; missing upstream `agent-browser` or browser dependencies still blocks that target.
+**Current 0.6.16 rollout exception:** the owner explicitly waived Windows qualification on 2026-09-21, including available runners. Windows failures remain visible but nonblocking, not passed; no further Windows repair experiments are part of this rollout. Linux/macOS and all other required checks remain required. See [release waiver and artifact requirements](RELEASE.md#current-0616-rollout-waiver) and [follow-up #191](https://github.com/fitchmultz/pi-agent-browser-native/issues/191). The commands below are unchanged and a waived Windows result does not make the full composition a passing matrix.
+
+Outside that rollout exception, this is a release-blocking gate. Missing setup is not a skipped pass. When a maintainer approves an [alternate native transport](#alternate-native-transports), it must prove the same target-local suites; missing upstream `agent-browser` or browser dependencies still blocks that target.
 
 ## Required release gate
 
@@ -34,7 +36,7 @@ npm run verify -- platform-smoke run --target ubuntu --suite platform-build
 | --- | --- | --- | --- |
 | `macos` | `ssh` static localhost | POSIX shell on macOS | Required |
 | `ubuntu` | `local-container` | POSIX shell in a Docker-compatible local container | Required |
-| `windows-native` | `parallels` | native Windows PowerShell over OpenSSH | Required |
+| `windows-native` | `parallels` | native Windows PowerShell over OpenSSH | Nonblocking for the owner-waived 0.6.16 rollout; otherwise required |
 
 ## Alternate native transports
 
