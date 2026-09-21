@@ -42,7 +42,7 @@ import {
 const PIPELINE_PROVIDER = "piab-pipeline";
 const PIPELINE_MODEL_ID = "tool-pipeline";
 
-type PipelineToolResult = ToolResultMessage<unknown> & { toolName: "agent_browser" };
+type PipelineToolResult = ToolResultMessage & { toolName: "agent_browser" };
 
 type PipelinePromptResult = {
 	inMemoryResult: PipelineToolResult;
@@ -98,7 +98,7 @@ function streamTextResponse(model: Model<any>, text: string) {
 	return stream;
 }
 
-function createToolCallingStream(toolArguments: Record<string, unknown>, priorCalls: ToolCall[] = []) {
+function createToolCallingStream(toolArguments: ToolCall["arguments"], priorCalls: ToolCall[] = []) {
 	return (model: Model<any>, context: Context, _options?: SimpleStreamOptions) => {
 		const hasToolResult = context.messages.some((message) => message.role === "toolResult" && message.toolName === "agent_browser");
 		if (hasToolResult) return streamTextResponse(model, "Observed agent_browser result.");
@@ -157,7 +157,7 @@ async function readPersistedAgentBrowserResult(sessionDir: string): Promise<{ re
 	return { result, sessionFile };
 }
 
-function registerPipelineProvider(modelRuntime: ModelRuntime, toolArguments: Record<string, unknown>, priorCalls?: ToolCall[]): Model<any> {
+function registerPipelineProvider(modelRuntime: ModelRuntime, toolArguments: ToolCall["arguments"], priorCalls?: ToolCall[]): Model<any> {
 	modelRuntime.registerProvider(PIPELINE_PROVIDER, {
 		api: "openai-completions",
 		apiKey: "piab-pipeline-key",
@@ -180,7 +180,7 @@ function registerPipelineProvider(modelRuntime: ModelRuntime, toolArguments: Rec
 
 async function runPipelinePrompt(options: {
 	fakeScript: string;
-	toolArguments: Record<string, unknown>;
+	toolArguments: ToolCall["arguments"];
 	extensionFactory?: ExtensionFactory;
 	priorCalls?: ToolCall[];
 	runPrompt?: (session: AgentSession) => Promise<void>;
