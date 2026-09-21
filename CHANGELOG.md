@@ -4,7 +4,7 @@
 
 ## 0.6.16 - 2026-09-21
 
-### Qualification (unpublished candidate)
+### Qualification
 
 - The owner waived Windows qualification for this rollout on 2026-09-21; Windows failures remain visible and nonblocking, not passed. Linux/macOS, Node floors, official/fork consumer checks and all three final reviewer approvals remain required before merge, release or activation.
 - Track unresolved Windows policy-lock and restored Electron cleanup failures in [#191](https://github.com/fitchmultz/pi-agent-browser-native/issues/191). The unchanged Electron repeat passed once without a product patch; its original cause remains unknown. Earlier passing focused Windows controls are bounded evidence, not full-suite qualification. Failed private Windows candidates are not integrated.
