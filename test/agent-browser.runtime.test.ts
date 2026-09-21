@@ -2082,6 +2082,14 @@ test("redactInvocationArgs masks sensitive flags and auth-bearing urls", () => {
 	]);
 });
 
+test("redactSensitiveText redacts bearer tokens before Windows path separators", () => {
+	const path = String.raw`C:\fixture\Bearer directory-secret\out.png`;
+	const redacted = String.raw`C:\fixture\Bearer [REDACTED]\out.png`;
+	assert.equal(redactSensitiveText(path), redacted);
+	assert.equal(redactSensitiveText(JSON.stringify({ path })), JSON.stringify({ path: redacted }));
+	assert.equal(redactSensitiveText(`mkdir '${path}'`), `mkdir '${redacted}'`);
+});
+
 test("redactSensitiveText preserves bearer prose while redacting credential contexts", () => {
 	for (const text of [
 		"The endpoint requires a bearer token.",

@@ -4,6 +4,14 @@ A Pi extension that lets coding agents drive real browser sessions with a native
 
 It is for Pi users who want agents to browse sites, inspect pages, click through flows, capture screenshots, use persistent profiles, and handle authenticated web apps without spending context on `agent-browser` CLI ceremony.
 
+## Pi release qualification
+
+Development host dependencies are pinned to official Pi **0.86.1**, with wildcard runtime peers. `npm run check:compat` checks the installed candidate SDK/CLI identity, typechecks, runs the existing offline tests (including the native Pi pipeline with a controlled provider and fake browser), and tests a packed runtime-only installation through both the SDK and the actual bundled RPC CLI. The fork lane additionally requires the native idle checkpoint hook. It does not substitute a fork SDK while leaving official types or child CLI installed.
+
+Run in an empty HOME with a **short** TMPDIR outside your real home. Long temporary paths can exceed macOS's 103-byte Unix socket limit; keep the fixture's socket safety checks intact. Real-browser/checkpoint controls, live upstream help sampling, lifecycle dogfood, and platform qualification remain the separate gates documented below. A Pi-only compatibility run uses no live browser profiles, credentials, or agent-browser fork, and does not certify those external integrations.
+
+For the 0.6.16 compatibility rollout, the owner explicitly waived Windows qualification on 2026-09-21. Windows diagnostics and failures remain visible but nonblocking; this is **not** a Windows full-suite pass. Linux/macOS, declared Node floors, official/fork host and consumer-artifact checks remain required. Known Windows failures and follow-up are tracked in [#191](https://github.com/fitchmultz/pi-agent-browser-native/issues/191); see the [current support evidence](docs/SUPPORT_MATRIX.md#current-0616-rollout).
+
 ## Source-of-truth map
 
 Start here for install and common usage. For deeper work, use the active docs by purpose:

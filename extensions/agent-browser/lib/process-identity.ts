@@ -2,7 +2,8 @@ import { execFile } from "node:child_process";
 import { dirname, join, win32 } from "node:path";
 
 const WINDOWS_PROCESS_START_IDENTITY_PREFIX = "win32-powershell-ticks-v1:";
-const PROCESS_START_IDENTITY_TIMEOUT_MS = 5_000;
+// Native Windows PowerShell startup can exhaust the former five-second probe budget.
+const PROCESS_START_IDENTITY_TIMEOUT_MS = process.platform === "win32" ? 10_000 : 5_000;
 const DEFAULT_WINDOWS_SYSTEM_ROOT = "C:\\Windows";
 
 export interface ProcessStartIdentityCommand {

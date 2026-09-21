@@ -1,6 +1,6 @@
 {
   "name": "pi-agent-browser-native",
-  "version": "0.6.15",
+  "version": "0.6.16",
   "description": "pi extension that exposes agent-browser as a native tool for browser automation",
   "type": "module",
   "author": "Mitch Fultz (https://github.com/fitchmultz)",
@@ -65,11 +65,12 @@
     "typebox": "*"
   },
   "devDependencies": {
-    "@earendil-works/pi-ai": "0.84.0",
-    "@earendil-works/pi-coding-agent": "0.84.0",
-    "@earendil-works/pi-tui": "0.84.0",
+    "@earendil-works/pi-ai": "0.86.1",
+    "@earendil-works/pi-coding-agent": "0.86.1",
+    "@earendil-works/pi-tui": "0.86.1",
     "@types/cross-spawn": "6.0.6",
     "@types/node": "^25.9.3",
+    "@types/which": "2.0.2",
     "tsx": "^4.21.0",
     "typebox": "^1.1.38",
     "typescript": "^6.0.3"
@@ -90,8 +91,9 @@
     "smoke:platform:ubuntu": "node scripts/platform-smoke.mjs run --target ubuntu",
     "smoke:platform:windows-native": "node scripts/platform-smoke.mjs run --target windows-native",
     "smoke:platform:all": "npm run smoke:platform:doctor && node scripts/platform-smoke.mjs run --target macos,ubuntu,windows-native",
+    "check:compat": "node scripts/compat-host.mjs && npm run typecheck && npm test && node scripts/verify-package.mjs --smoke-pi",
     "typecheck": "node ./scripts/project.mjs verify typecheck",
-    "test": "node ./scripts/build.mjs && tsx --test --test-concurrency=1 test/**/*.test.ts",
+    "test": "node ./scripts/build.mjs && tsx --test --test-reporter=tap --test-concurrency=1 test/**/*.test.ts",
     "verify": "node ./scripts/project.mjs verify",
     "prepublishOnly": "npm run verify -- release && npm pack --dry-run",
     "build": "node ./scripts/build.mjs",
@@ -114,6 +116,8 @@
     }
   },
   "dependencies": {
-    "cross-spawn": "7.0.6"
+    "cross-spawn": "7.0.6",
+    "path-key": "3.1.1",
+    "which": "2.0.2"
   }
 }

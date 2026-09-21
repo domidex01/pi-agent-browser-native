@@ -6,6 +6,7 @@
  * Invariants/Assumptions: The package is built directly from the current repo checkout, npm and tar are available on PATH, installed Pi SDK APIs match the current dev dependency, and the package should publish only canonical docs plus the extension source and license.
  */
 
+import assert from "node:assert/strict";
 import { execFile as execFileCallback } from "node:child_process";
 import { access, chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -517,6 +518,7 @@ export async function verifyPackageRelease(options = {}) {
 
 export async function verifyPackagedPiLoad(options = {}) {
 	const cwd = options.cwd ?? process.cwd();
+	const { hostCli } = await import("./compat-host.mjs");
 	const { cleanup, packageDir, packResult } = await packToTemporaryPackageDir(cwd);
 	let session;
 	let tempAgentDir;
@@ -550,6 +552,7 @@ export async function verifyPackagedPiLoad(options = {}) {
 
 		const tools = session.getAllTools();
 		const failures = evaluatePiSmokeResult({ packageDir, tools });
+		await session.bindExtensions({ mode: "print", onError: error => failures.push(error.error) });
 		failures.push(...resourceLoader.getExtensions().errors.map(({ path, error }) => `Packaged extension ${path} failed to load: ${error}`));
 		let invocation;
 
@@ -559,6 +562,24 @@ export async function verifyPackagedPiLoad(options = {}) {
 			);
 			failures.push(...executionReport.failures);
 			invocation = executionReport.invocation;
+			if (process.env.PI_COMPAT_HOST === "fork") {
+				assert.equal(typeof session.acquireCheckpoint, "function", "fork checkpoint hook is required");
+				const hold = await session.acquireCheckpoint({ quiesce: () => () => {}, signal: AbortSignal.timeout(10_000) });
+				try { assert.equal(hold.sleepReady, true, JSON.stringify(hold.sleepBlockers)); }
+				finally { hold.release(); }
+			}
+			const marker = join(tempAgentDir, "cli.json");
+			const observer = join(tempAgentDir, "observer.ts");
+			await writeFile(observer, `import { writeFileSync } from "node:fs";
+export default function(pi) { pi.on("session_start", (_event, ctx) => { writeFileSync(${JSON.stringify(marker)}, JSON.stringify(pi.getActiveTools())); ctx.shutdown(); }); }`);
+			const cliProcess = execFile(process.execPath, [hostCli, "--mode", "rpc", "--no-session", "-ne", "-ns", "-np", "-nc", "--no-themes", "--approve", "-e", packageDir, "-e", observer], {
+				cwd: packageDir, timeout: 30_000,
+				env: { ...process.env, HOME: tempAgentDir, USERPROFILE: tempAgentDir, PI_CODING_AGENT_DIR: tempAgentDir, PI_OFFLINE: "1", PI_TELEMETRY: "0" },
+			});
+			cliProcess.child.stdin.end();
+			const child = await cliProcess;
+			assert.doesNotMatch(child.stderr, /Failed to load extension|Extension error/);
+			assert.ok(JSON.parse(await readFile(marker, "utf8")).includes("agent_browser"));
 		}
 
 		return {
@@ -572,7 +593,11 @@ export async function verifyPackagedPiLoad(options = {}) {
 			tools,
 		};
 	} finally {
-		session?.dispose();
+		try {
+			if (session) await session.extensionRunner.emit({ type: "session_shutdown", reason: "quit" });
+		} finally {
+			session?.dispose();
+		}
 		await cleanup();
 		if (tempAgentDir) await rm(tempAgentDir, { force: true, recursive: true });
 	}

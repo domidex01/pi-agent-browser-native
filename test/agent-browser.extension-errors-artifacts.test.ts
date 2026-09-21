@@ -11,7 +11,7 @@ import { withAgentBrowserProcessEnvironment } from "../extensions/agent-browser/
 import { execFileSync } from "node:child_process";
 import { access, link, mkdir, mkdtemp, readFile, readdir, rm, utimes, watch, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { delimiter, dirname, join, resolve } from "node:path";
 import test from "node:test";
 import { pathToFileURL } from "node:url";
 
@@ -130,7 +130,7 @@ if (args.includes("screenshot")) {
 		await withPatchedEnv({
 			AGENT_BROWSER_ALLOW_FILE_ACCESS: "true",
 			AGENT_BROWSER_ARGS: "--disable-web-security",
-			AGENT_BROWSER_CONFIG: "/tmp/agent-browser.json",
+			AGENT_BROWSER_CONFIG: join(tempDir, "agent-browser.json"),
 			PI_AGENT_BROWSER_TEST_PAGE_URL: localUrl,
 			PATH: `${tempDir}:${basePath}`,
 		}, async () => {
@@ -148,7 +148,7 @@ if (args.includes("screenshot")) {
 			assert.equal(invocations.length, 3);
 			assert.equal(invocations[0]?.allowFileAccess, "true");
 			assert.equal(invocations[0]?.rawArgs, "--disable-web-security");
-			assert.equal(invocations[0]?.config, "/tmp/agent-browser.json");
+			assert.equal(invocations[0]?.config, join(tempDir, "agent-browser.json"));
 			assert.ok(invocations.some((entry) => entry.args.includes(artifactPath)));
 		});
 	} finally {
@@ -576,7 +576,7 @@ if (args.includes("session") && args.includes("info")) {
   process.stdout.write(JSON.stringify({ success: true, data: { title: "safe", url: "https://example.com/safe" } }));
 }`);
 	try {
-		await withPatchedEnv({ HOME: tempDir, PATH: `${tempDir}:${basePath}`, PI_AGENT_BROWSER_TEST_CUSTOM_SESSION_INFO: "1" }, async () => {
+		await withPatchedEnv({ AGENT_BROWSER_ENCRYPTION_KEY: "a".repeat(64), HOME: tempDir, USERPROFILE: tempDir, PATH: `${tempDir}:${basePath}`, PI_AGENT_BROWSER_TEST_CUSTOM_SESSION_INFO: "1" }, async () => {
 			const first = createExtensionHarness({ cwd: tempDir });
 			await runExtensionEvent(first.handlers, "session_start", { reason: "new" }, first.ctx);
 			const seeded = await executeRegisteredTool(first.tool, first.ctx, { args: ["get", "url"], sessionMode: "fresh" });
@@ -628,7 +628,7 @@ if (args.includes("session") && args.includes("info")) {
   process.stdout.write(JSON.stringify({ success: true, data: { title: "safe", url: "https://example.com/safe" } }));
 }`);
 	try {
-		await withPatchedEnv({ HOME: tempDir, PATH: `${tempDir}:${basePath}`, PI_AGENT_BROWSER_TEST_CUSTOM_SESSION_INFO: "1" }, async () => {
+		await withPatchedEnv({ AGENT_BROWSER_ENCRYPTION_KEY: "a".repeat(64), HOME: tempDir, USERPROFILE: tempDir, PATH: `${tempDir}:${basePath}`, PI_AGENT_BROWSER_TEST_CUSTOM_SESSION_INFO: "1" }, async () => {
 			const harness = createExtensionHarness({ cwd: tempDir });
 			await runExtensionEvent(harness.handlers, "session_start", { reason: "new" }, harness.ctx);
 			const initial = await executeRegisteredTool(harness.tool, harness.ctx, { args: ["open", "https://example.com/safe"], sessionMode: "fresh" });
@@ -813,7 +813,7 @@ if (args.includes("session") && args.includes("info")) {
   process.stdout.write(JSON.stringify({ success: true, data: { title: "Example", url: "https://example.com" } }));
 }`);
 	try {
-		await withPatchedEnv({ HOME: tempDir, PATH: `${tempDir}:${basePath}`, PI_AGENT_BROWSER_TEST_CUSTOM_SESSION_INFO: "1" }, async () => {
+		await withPatchedEnv({ AGENT_BROWSER_ENCRYPTION_KEY: "a".repeat(64), HOME: tempDir, USERPROFILE: tempDir, PATH: `${tempDir}:${basePath}`, PI_AGENT_BROWSER_TEST_CUSTOM_SESSION_INFO: "1" }, async () => {
 			const first = createExtensionHarness({ cwd: tempDir });
 			await runExtensionEvent(first.handlers, "session_start", { reason: "new" }, first.ctx);
 			const opened = await executeRegisteredTool(first.tool, first.ctx, { args: ["open", "https://example.com"], sessionMode: "fresh" });
@@ -957,14 +957,15 @@ if (args.includes("session") && args.includes("info")) {
 		try {
 			await withPatchedEnv({
 				AGENT_BROWSER_ENCRYPTION_KEY: "a".repeat(64),
+				// Clear case aliases before applying the selected uppercase value on Windows.
+				all_proxy: undefined,
+				http_proxy: undefined,
+				https_proxy: undefined,
 				ALL_PROXY: undefined,
 				HTTP_PROXY: undefined,
 				HTTPS_PROXY: undefined,
 				PI_AGENT_BROWSER_MANAGED_SESSION_RESTORE: undefined,
 				PI_AGENT_BROWSER_TEST_CUSTOM_SESSION_INFO: "1",
-				all_proxy: undefined,
-				http_proxy: undefined,
-				https_proxy: undefined,
 				...testCase.env,
 				HOME: tempDir,
 				PATH: `${tempDir}:${basePath}`,
@@ -1019,13 +1020,15 @@ test("agentBrowserExtension does not sticky-disable restore when a suppressed sp
 	const basePath = process.env.PATH ?? "";
 	try {
 		await withPatchedEnv({
-			ALL_PROXY: undefined,
-			HTTP_PROXY: undefined,
-			HTTPS_PROXY: "http://127.0.0.1:8080",
-			PI_AGENT_BROWSER_MANAGED_SESSION_RESTORE: undefined,
 			all_proxy: undefined,
 			http_proxy: undefined,
 			https_proxy: undefined,
+			ALL_PROXY: undefined,
+			HTTP_PROXY: undefined,
+			HTTPS_PROXY: "http://127.0.0.1:8080",
+			AGENT_BROWSER_ENCRYPTION_KEY: "a".repeat(64),
+			USERPROFILE: tempDir,
+			PI_AGENT_BROWSER_MANAGED_SESSION_RESTORE: undefined,
 			HOME: tempDir,
 			PATH: "",
 		}, async () => {
@@ -1036,7 +1039,7 @@ test("agentBrowserExtension does not sticky-disable restore when a suppressed sp
 			assert.notEqual(failed.details?.managedSessionRestoreDisabled, true);
 
 			delete process.env.HTTPS_PROXY;
-			process.env.PATH = `${tempDir}:${basePath}`;
+			process.env.PATH = `${tempDir}${delimiter}${basePath}`;
 			await writeFakeAgentBrowserBinary(
 				tempDir,
 				`const fs = require("node:fs");
@@ -1089,22 +1092,21 @@ test("agentBrowserExtension rejects malformed JSON envelopes that omit success",
 	}
 });
 
-test("agentBrowserExtension forwards long waits and extends the subprocess watchdog from explicit wait timeouts", { concurrency: false }, async () => {
+test("agentBrowserExtension forwards long waits and extends the subprocess watchdog from explicit wait timeouts", { concurrency: false }, async (t) => {
 	const tempDir = await mkdtemp(join(tmpdir(), "pi-agent-browser-wait-timeout-"));
 	const logPath = join(tempDir, "invocations.log");
+	const releasePath = join(tempDir, "release");
 	const basePath = process.env.PATH ?? "";
 	await writeFakeAgentBrowserBinary(
 		tempDir,
 		`const fs = require("node:fs");
 const stdin = fs.readFileSync(0, "utf8");
-fs.appendFileSync(${JSON.stringify(logPath)}, JSON.stringify({ args: process.argv.slice(2), stdin, defaultTimeout: process.env.AGENT_BROWSER_DEFAULT_TIMEOUT }) + "\\n");
-let delay = 100;
-try {
-  const parsed = JSON.parse(stdin);
-  const waitCount = Array.isArray(parsed) ? parsed.filter((step) => Array.isArray(step) && step[0] === "wait").length : 0;
-  if (waitCount > 1) delay = 6500;
-} catch {}
-setTimeout(() => process.stdout.write(JSON.stringify({ success: true, data: { ok: true } })), delay);`,
+const watcher = fs.watch(${JSON.stringify(tempDir)}, () => {
+  if (!fs.existsSync(${JSON.stringify(releasePath)})) return;
+  watcher.close();
+  process.stdout.write(JSON.stringify({ success: true, data: { ok: true } }));
+});
+fs.appendFileSync(${JSON.stringify(logPath)}, JSON.stringify({ args: process.argv.slice(2), stdin, defaultTimeout: process.env.AGENT_BROWSER_DEFAULT_TIMEOUT }) + "\\n");`,
 	);
 
 	try {
@@ -1112,21 +1114,36 @@ setTimeout(() => process.stdout.write(JSON.stringify({ success: true, data: { ok
 			const harness = createExtensionHarness({ cwd: tempDir });
 			await runExtensionEvent(harness.handlers, "session_start", { reason: "new" }, harness.ctx);
 
-			const directWait = await executeRegisteredTool(harness.tool, harness.ctx, {
-				args: ["wait", "31000"],
-			});
-			const downloadWait = await executeRegisteredTool(harness.tool, harness.ctx, {
-				args: ["wait", "--download", "/tmp/export.csv", "--timeout", "30000"],
-			});
 			const batchWaitStdin = JSON.stringify([["wait", "--text", "42", "--timeout", "1000"], ["wait", "1000"]]);
-			const batchWait = await executeRegisteredTool(harness.tool, harness.ctx, {
-				args: ["batch"],
-				stdin: batchWaitStdin,
-			});
-
-			for (const result of [directWait, downloadWait, batchWait]) {
-				assert.equal(result.isError, false);
-				assert.equal(result.details?.resultCategory, "success");
+			const cases = [
+				{ params: { args: ["wait", "31000"] }, elapsed: 100 },
+				{ params: { args: ["wait", "--download", "/tmp/export.csv", "--timeout", "30000"] }, elapsed: 100 },
+				{ params: { args: ["batch"], stdin: batchWaitStdin }, elapsed: 6500 },
+			];
+			const realSetTimeout = setTimeout;
+			for (const [index, { params, elapsed }] of cases.entries()) {
+				await rm(releasePath, { force: true });
+				const controller = new AbortController();
+				t.mock.timers.enable({ apis: ["setTimeout"] });
+				const pending = executeRegisteredTool(harness.tool, harness.ctx, params, controller.signal);
+				try {
+					// Preflight and native process startup use real I/O. Advance the
+					// watchdog only once the requested command is running and held.
+					const deadline = Date.now() + 5000;
+					while ((await readInvocationLog(logPath)).length <= index) {
+						assert.ok(Date.now() < deadline, "controlled wait child must start");
+						await new Promise((resolve) => realSetTimeout(resolve, 5));
+					}
+					t.mock.timers.tick(elapsed);
+					await writeFile(releasePath, "release");
+					const result = await pending;
+					assert.equal(result.isError, false, JSON.stringify(result));
+					assert.equal(result.details?.resultCategory, "success");
+				} finally {
+					t.mock.timers.reset();
+					controller.abort();
+					await Promise.allSettled([pending]);
+				}
 			}
 			const invocations = await readInvocationLog(logPath);
 			assert.deepEqual(invocations.map((entry) => entry.args.slice(-4)), [
@@ -1351,8 +1368,11 @@ test("agentBrowserExtension reports managed-session outcomes after failed fresh 
 	});
 	initializeGitProject(tempDir);
 	const basePath = process.env.PATH ?? "";
+	// Windows searches cwd even with an empty PATH: keep the fixture shim only on PATH.
+	const binaryDir = join(tempDir, "bin");
+	await mkdir(binaryDir);
 	await writeFakeAgentBrowserBinary(
-		tempDir,
+		binaryDir,
 		`const args = process.argv.slice(2);
 if (args.includes("session") && args.includes("info")) {
   process.stdout.write(JSON.stringify({ success: true, data: { active: false, runtime: null } }));
@@ -1366,7 +1386,7 @@ process.stdout.write(JSON.stringify({ success: true, data: { title: "ok", url: a
 
 	try {
 		const missingBinaryDir = await mkdtemp(join(tempDir, "missing-agent-browser-"));
-		await withPatchedEnv({ PATH: `${tempDir}:${basePath}`, PI_AGENT_BROWSER_SOCKET_DIR: socketDir }, async () => {
+		await withPatchedEnv({ PATH: `${binaryDir}${delimiter}${basePath}`, PI_AGENT_BROWSER_SOCKET_DIR: socketDir }, async () => {
 			const harness = createExtensionHarness({ cwd: tempDir });
 			await runExtensionEvent(harness.handlers, "session_start", { reason: "new" }, harness.ctx);
 
@@ -2112,7 +2132,7 @@ test("agentBrowserExtension forwards wait --download saved-file metadata in deta
 
 			assert.equal(result.isError, true);
 			assert.equal(result.content[0]?.type, "text");
-			assert.match((result.content[0] as { text: string }).text, /Artifact verification failed: requested download was not found at \/tmp\/export\.csv/);
+			assert.ok((result.content[0] as { text: string }).text.includes(`Artifact verification failed: requested download was not found at ${resolve(tempDir, "/tmp/export.csv")}.`));
 			assert.match((result.content[0] as { text: string }).text, /Download event reported; file not verified: \/tmp\/export\.csv/);
 			assert.equal(result.details?.savedFilePath, "/tmp/export.csv");
 			assert.deepEqual(result.details?.savedFile, {

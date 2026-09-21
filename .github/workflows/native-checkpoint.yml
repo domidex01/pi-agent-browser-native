@@ -10,6 +10,13 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: native-checkpoint-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PI_AUTOMATION_REF: fe049ea97a8c91d1a4c3a0958a85b37c7759dcc6 # v1.0.0
+
 jobs:
   native-checkpoint-linux:
     name: Native checkpoint Linux
@@ -26,8 +33,16 @@ jobs:
           persist-credentials: false
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          repository: fitchmultz/.github
+          ref: ${{ env.PI_AUTOMATION_REF }}
+          path: automation
+          persist-credentials: false
+      - name: Select the reviewed shared fork target
+        run: echo "PI_FORK_REF=$(node -p 'require("./automation/host-targets.json").forkRef')" >> "$GITHUB_ENV"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
           repository: fitchmultz/pi
-          ref: 97891a8511c101ef1cb53d72dfdcb60e0e2c0e89
+          ref: ${{ env.PI_FORK_REF }}
           path: pi-host
           persist-credentials: false
       - name: Install system prerequisites
@@ -48,11 +63,21 @@ jobs:
           echo "CI_NODE_BIN=$(dirname "$(command -v node)")" >> "$GITHUB_ENV"
           cp -a extension pi-host "$root/"
           mkdir -m 700 "$root/home"
-      - name: Build locked native host and download stock browser
+      - name: Build current native fixture host and download stock browser
         run: |
-          env -i HOME="$CI_ROOT/home" TMPDIR=/tmp \
+          env -i HOME="$CI_ROOT/home" TMPDIR=/tmp PI_FORK_REF="$PI_FORK_REF" \
             PATH="$CI_NODE_BIN:/usr/local/bin:/usr/bin:/bin" \
             bash "$CI_ROOT/extension/scripts/ci-native-checkpoint.sh" setup "$CI_ROOT"
+      - name: Qualify the locked local official graph on Node 26
+        run: |
+          # Consumer packaging installs public runtime dependencies. Do this before
+          # the loopback-only browser namespace; no service credentials are passed.
+          cd "$CI_ROOT/extension"
+          env -i HOME="$CI_ROOT/home" TMPDIR=/tmp \
+            PATH="$CI_NODE_BIN:/usr/local/bin:/usr/bin:/bin" \
+            PI_CODING_AGENT_DIR="$CI_ROOT/home/.pi/agent" \
+            PI_OFFLINE=1 PI_TELEMETRY=0 PI_COMPAT_HOST=official \
+            npm run check:compat 2>&1 | tee "$CI_ROOT/logs/node26-verify.log"
       - name: Allow the fixture Chrome to create its sandbox
         run: |
           # Chromium's documented Ubuntu 23.10+ filepath exception (option 2):
@@ -74,7 +99,7 @@ jobs:
             # Load only our ephemeral profile, without reloading host policy or caching it.
             sudo apparmor_parser --add --skip-cache "$CI_ROOT/logs/chrome.apparmor"
           } 2>&1 | tee "$CI_ROOT/logs/sandbox-setup.log"
-      - name: Default verification and all native checkpoints (no external network)
+      - name: Documentation drift and all 13 native browser checkpoints (loopback only)
         run: |
           # Root only creates a loopback-only namespace, then drops all privileges.
           sudo unshare --net -- bash -c '

@@ -10,7 +10,7 @@ import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
 import { chmod, link, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { delimiter, dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import test from "node:test";
 
@@ -1375,7 +1375,7 @@ const data = command === "get" && subcommand === "url"
 process.stdout.write(JSON.stringify({ success: true, data }));`);
 
 	try {
-		await withPatchedEnv({ PATH: `${tempDir}:${nodeBinDir}` }, async () => {
+		await withPatchedEnv({ PATH: `${tempDir}${delimiter}${nodeBinDir}` }, async () => {
 			const sessionName = "restart-session";
 			const harness = createExtensionHarness({ cwd: tempDir, prompt: "Restart a browser recording." });
 			const started = await executeRegisteredTool(harness.tool, harness.ctx, { args: ["--session", sessionName, "record", "start", "z-previous.webm"] });
@@ -1474,7 +1474,7 @@ process.stdout.write(JSON.stringify(command === "batch"
 			assert.fail(`${scenario.label}: ${event} did not dispatch`);
 		};
 		try {
-			await withPatchedEnv({ AGENT_BROWSER_NAMESPACE: scenario.ambient, AGENT_BROWSER_SESSION: undefined, PATH: `${tempDir}:${nodeBinDir}` }, async () => {
+			await withPatchedEnv({ AGENT_BROWSER_NAMESPACE: scenario.ambient, AGENT_BROWSER_SESSION: undefined, PATH: `${tempDir}${delimiter}${nodeBinDir}` }, async () => {
 				const harness = createExtensionHarness({ cwd, prompt: "Exercise global close ordering." });
 				await runExtensionEvent(harness.handlers, "session_start", { reason: "new" }, harness.ctx);
 				const pending: Array<ReturnType<typeof executeRegisteredTool>> = [];
@@ -1626,7 +1626,7 @@ if (firstCallFailure) process.exit(1);`,
 	);
 
 	try {
-		await withPatchedEnv({ PATH: `${tempDir}:${missingFfmpegPath}`, PI_AGENT_BROWSER_SESSION_ARTIFACT_MANIFEST_MAX_ENTRIES: "1" }, async () => {
+		await withPatchedEnv({ PATH: `${tempDir}${delimiter}${missingFfmpegPath}`, PI_AGENT_BROWSER_SESSION_ARTIFACT_MANIFEST_MAX_ENTRIES: "1" }, async () => {
 			const firstCallHarness = createExtensionHarness({ cwd: tempDir, prompt: "Test failed post-close launch ownership.", sessionFile: join(tempDir, "first-call-session.jsonl") });
 			const failedFirstCall = await executeRegisteredTool(firstCallHarness.tool, firstCallHarness.ctx, {
 				sessionMode: "fresh",
@@ -1923,8 +1923,9 @@ if (firstCallFailure) process.exit(1);`,
 			assert.equal((await executeRegisteredTool(harness.tool, harness.ctx, { args: ["close"] })).isError, false);
 
 			await rm(join(tempDir, "ffmpeg"), { recursive: true, force: true });
-			await writeFile(join(tempDir, "ffmpeg"), "#!/bin/sh\nexit 0\n", "utf8");
-			await chmod(join(tempDir, "ffmpeg"), 0o755);
+			const ffmpeg = join(tempDir, process.platform === "win32" ? "ffmpeg.cmd" : "ffmpeg");
+			await writeFile(ffmpeg, process.platform === "win32" ? "@exit /b 0\r\n" : "#!/bin/sh\nexit 0\n", "utf8");
+			if (process.platform !== "win32") await chmod(ffmpeg, 0o755);
 			const presentResult = await executeRegisteredTool(harness.tool, harness.ctx, { args: ["record", "start", "present.webm"], sessionMode: "fresh" });
 			assert.equal(presentResult.isError, false);
 			assert.equal((presentResult.details as { recordingDependencyWarning?: unknown }).recordingDependencyWarning, undefined);
@@ -1970,7 +1971,7 @@ const data = command === "open" ? { title: "Example", url: subcommand }
   : { command, subcommand, path };
 process.stdout.write(JSON.stringify({ success: true, data }));`);
 	try {
-		await withPatchedEnv({ PATH: `${tempDir}:${nodeBinDir}` }, async () => {
+		await withPatchedEnv({ PATH: `${tempDir}${delimiter}${nodeBinDir}` }, async () => {
 			const harness = createExtensionHarness({ cwd: tempDir, prompt: "Keep recording identities isolated." });
 			assert.equal((await executeRegisteredTool(harness.tool, harness.ctx, { args: ["--namespace", "one", "--session", "shared", "open", "https://example.test/"] })).isError, false);
 			assert.equal((await executeRegisteredTool(harness.tool, harness.ctx, { args: ["--namespace", "two", "--session", "shared", "open", "https://example.test/"] })).isError, false);
@@ -2015,7 +2016,7 @@ const data = command === "open" ? { title: "Example", url: subcommand }
   : { command, subcommand, path };
 process.stdout.write(JSON.stringify({ success: true, data }));`);
 	try {
-		await withPatchedEnv({ PATH: `${tempDir}:${nodeBinDir}` }, async () => {
+		await withPatchedEnv({ PATH: `${tempDir}${delimiter}${nodeBinDir}` }, async () => {
 			const harness = createExtensionHarness({ cwd: tempDir, prompt: "Keep cross-branch recording state safe." });
 			assert.equal((await executeRegisteredTool(harness.tool, harness.ctx, { args: ["--session", "shared", "open", "https://example.test/"] })).isError, false);
 			assert.equal((await executeRegisteredTool(harness.tool, harness.ctx, { args: ["--session", "shared", "record", "start", "branch.webm"] })).isError, false);

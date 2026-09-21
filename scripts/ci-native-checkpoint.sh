@@ -9,7 +9,8 @@ cd "$root/extension"
 [[ $HOME == "$root/home" && $PWD != "$HOME"/* ]]
 mkdir -p "$root/logs"
 export PATH="$root/browser/bin:$PATH"
-export PI_OFFLINE=1 npm_config_update_notifier=false
+export PI_OFFLINE=1 PI_TELEMETRY=0 npm_config_update_notifier=false
+export PI_CODING_AGENT_DIR="$root/home/.pi/agent"
 
 case "$mode" in
   setup)
@@ -20,7 +21,7 @@ case "$mode" in
       npm --version
       git rev-parse HEAD
       git -C "$root/pi-host" rev-parse HEAD
-      [[ $(git -C "$root/pi-host" rev-parse HEAD) == 97891a8511c101ef1cb53d72dfdcb60e0e2c0e89 ]]
+      [[ $(git -C "$root/pi-host" rev-parse HEAD) == "$PI_FORK_REF" ]]
       sha256sum package-lock.json "$root/pi-host/package-lock.json"
     } 2>&1 | tee "$root/logs/provenance.log"
     (
@@ -45,9 +46,10 @@ case "$mode" in
     } 2>&1 | tee -a "$root/logs/provenance.log"
     ;;
   verify)
-    # Run both gates even if the first fails, preserving both raw receipts.
+    # Shared check:compat owns types/tests/package checks; preserve distinct doc/browser receipts.
     status=0
-    npm run verify > "$root/logs/default-verify.log" 2>&1 || status=1
+    npm run docs > "$root/logs/docs.log" 2>&1 || status=1
+    npm run verify -- command-reference > "$root/logs/command-reference.log" 2>&1 || status=1
     # Only fresh downloaded binary resources: the test makes its own empty profiles.
     browsers=("$HOME"/.agent-browser/browsers/chrome-*)
     [[ ${#browsers[@]} == 1 && -d ${browsers[0]} ]]

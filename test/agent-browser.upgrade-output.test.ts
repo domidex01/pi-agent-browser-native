@@ -116,7 +116,8 @@ if (mode === 'structured-error') {
 						assert.doesNotMatch(spill, /upgrade-secret/);
 					}
 					if (mode === "timeout" || mode === "abort") {
-						assert.equal(result.details?.exitCode, 0, "even a clean signal-handler exit must retain cancellation/timeout failure");
+						// POSIX runs the handler; Windows taskkill forcibly closes the shell with 1.
+						assert.equal(result.details?.exitCode, process.platform === "win32" ? 1 : 0, "native termination status must retain cancellation/timeout failure");
 						assert.equal(result.details?.parseError, undefined);
 						if (mode === "timeout") assert.equal(result.details?.timedOut, true);
 						const pid = Number(await readFile(marker, "utf8"));

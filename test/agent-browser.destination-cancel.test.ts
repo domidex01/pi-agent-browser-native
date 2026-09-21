@@ -116,6 +116,8 @@ save(); process.stdout.write(JSON.stringify(output)); process.exitCode = failed 
 	try {
 		await withPatchedEnv({
 			PATH: `${root}${delimiter}${process.env.PATH ?? ""}`, HOME: home, USERPROFILE: home,
+			// Enabled-restore scenarios need the native Windows storage prerequisite too.
+			AGENT_BROWSER_ENCRYPTION_KEY: "a".repeat(64),
 			PI_CODING_AGENT_DIR: join(root, "pi"), PI_AGENT_BROWSER_SOCKET_DIR: join(root, "s"),
 			AGENT_BROWSER_NAMESPACE: "", PI_AGENT_BROWSER_TEST_CUSTOM_SESSION_INFO: "1",
 		}, async () => {
