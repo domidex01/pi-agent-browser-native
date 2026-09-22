@@ -312,7 +312,7 @@ export function createToolBranchEntry(options: { details: Record<string, unknown
 }
 
 export type AgentBrowserToolParams = {
-	script?: string;
+	code?: string;
 	args?: string[];
 	semanticAction?: {
 		action: "check" | "click" | "fill" | "select";
@@ -485,16 +485,19 @@ export function createExtensionHarness(options: {
 }) {
 	const handlers = new Map<string, Array<(...args: unknown[]) => unknown>>();
 	const registeredTools = new Map<string, RegisteredTool>();
+	let activeTools: string[] = ["read", "bash"];
 	const appendedEntries: Array<{ customType: string; data: unknown }> = [];
 	const events = new EventEmitter();
 
-	const api: Partial<ExtensionAPI> = {
+	const pi: Pick<Parameters<typeof agentBrowserExtension>[0], "events" | "appendEntry" | "getActiveTools" | "getAllTools" | "getCommands" | "on" | "registerTool" | "setActiveTools"> = {
 		events: {
 			emit(channel, request) { options.onBusEvent?.(channel, request); events.emit(channel, request); },
 			on(channel, handler) { events.on(channel, handler); return () => { events.off(channel, handler); }; },
 		},
-		getAllTools: () => [],
 		getCommands: () => [],
+		getActiveTools() { return [...activeTools]; },
+		getAllTools() { return [...registeredTools.values()].map(tool => ({ ...tool, sourceInfo: { path: "test", source: "test", scope: "temporary" as const, origin: "top-level" as const } })); },
+		setActiveTools(names) { activeTools = [...names]; },
 		appendEntry(customType, data) {
 			appendedEntries.push({ customType, data });
 			branch.push({ type: "custom", customType, data });
@@ -504,14 +507,15 @@ export function createExtensionHarness(options: {
 			const existingHandlers = handlers.get(event) ?? [];
 			existingHandlers.push(handler as (...args: unknown[]) => unknown);
 			handlers.set(event, existingHandlers);
-			return () => { handlers.set(event, existingHandlers.filter(item => item !== handler)); };
+			return () => { handlers.set(event, existingHandlers.filter(candidate => candidate !== handler)); };
 		},
 		registerTool(tool) {
 			const registeredTool = adaptRegisteredTool(tool);
 			registeredTools.set(registeredTool.name, registeredTool);
+			activeTools.push(registeredTool.name);
 		},
 	};
-	agentBrowserExtension(api as ExtensionAPI);
+	agentBrowserExtension(pi as ExtensionAPI);
 
 	const registeredTool = registeredTools.get("agent_browser");
 	assert.ok(registeredTool, "expected the extension to register the agent_browser tool");
@@ -523,6 +527,8 @@ export function createExtensionHarness(options: {
 		isProjectTrusted: () => options.projectTrusted ?? true,
 		sessionManager: {
 			getBranch: () => branch,
+			getEntries: () => branch,
+			buildSessionProjection: () => ({ messages: branch.flatMap(entry => typeof entry === "object" && entry !== null && "type" in entry && entry.type === "message" && "message" in entry ? [entry.message] : []) }),
 			getSessionDir: () => sessionDir,
 			getSessionFile: () => options.sessionFile,
 			getSessionId: () => options.sessionId ?? TEST_SESSION_ID,
@@ -535,6 +541,7 @@ export function createExtensionHarness(options: {
 		getTool(name: string) {
 			return registeredTools.get(name);
 		},
+		getActiveTools: () => [...activeTools],
 		handlers,
 		tools: registeredTools,
 		setBranch(nextBranch: unknown[]) {

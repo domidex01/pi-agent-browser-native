@@ -96,8 +96,8 @@ console.log(JSON.stringify({ success: true, data }));
 			const download = await executeRegisteredTool(harness.tool, harness.ctx, { args: ["download", "#link", "downloads/report.txt"] });
 			assert.equal(download.isError, false, download.content[0]?.text);
 			assert.equal(await readFile(join(b, "downloads/report.txt"), "utf8"), "download fixture");
-			const one = executeRegisteredTool(harness.tool, harness.ctx, { job: { steps: [{ action: "screenshot", path: "jobs/one.png" }] } });
-			const two = executeRegisteredTool(harness.tool, harness.ctx, { job: { steps: [{ action: "screenshot", path: "jobs/two.png" }] } });
+			const one = executeRegisteredTool(harness.tool, harness.ctx, { args: ["batch", "--bail"], stdin: JSON.stringify([["screenshot", "jobs/one.png"]]) });
+			const two = executeRegisteredTool(harness.tool, harness.ctx, { args: ["batch", "--bail"], stdin: JSON.stringify([["screenshot", "jobs/two.png"]]) });
 			selected = a;
 			for (const result of await Promise.all([one, two])) assert.equal(result.isError, false, result.content[0]?.text);
 			assert.ok((await readFile(join(b, "jobs/one.png"))).length > 0);
@@ -120,13 +120,13 @@ console.log(JSON.stringify({ success: true, data }));
 			assert.ok(calls.every(call => call.cwd === a && call.profile === "Profile A"));
 			assert.ok(calls.filter(call => call.launch > 0).every(call => call.launch === 1), "live browser never restarted");
 			const beforeScript = resolutions;
-			const script = executeRegisteredTool(harness.tool, harness.ctx, { script: 'await browser({args:["screenshot","script/one.png"]}); await browser({args:["screenshot","script/two.png"]}); emit("done");' });
+			const script = executeRegisteredTool(harness.getTool("agent_browser_code")!, harness.ctx, { code: 'await browser({args:["screenshot","code/one.png"]}); await browser({args:["screenshot","code/two.png"]}); emit("done");' });
 			selected = a;
 			const scriptResult = await script;
 			assert.equal(scriptResult.isError, false, scriptResult.content[0]?.text);
-			assert.equal(resolutions, beforeScript + 1, "script children inherit one outer snapshot");
-			assert.ok((await readFile(join(b, "script/one.png"))).length > 0);
-			assert.ok((await readFile(join(b, "script/two.png"))).length > 0);
+			assert.equal(resolutions, beforeScript + 1, "code calls inherit one outer cwd snapshot");
+			assert.ok((await readFile(join(b, "code/one.png"))).length > 0);
+			assert.ok((await readFile(join(b, "code/two.png"))).length > 0);
 			assert.ok((await readFile(String(snapshot.details?.fullOutputPath))).length > 0, "cached artifact stays in the original store");
 			selected = b;
 			const configured = await executeRegisteredTool(harness.tool, harness.ctx, { args: ["--config", "agent-browser.json", "get", "title"] });
@@ -178,13 +178,14 @@ console.log(JSON.stringify({ success: true, data }));
 	try {
 		await withPatchedEnv({ ...clearedBrowserEnv, HOME: root, USERPROFILE: root, AGENT_BROWSER_ENCRYPTION_KEY: "a".repeat(64), PI_AGENT_BROWSER_SOCKET_DIR: join(root, "s"), PATH: `${root}${delimiter}${process.env.PATH}` }, async () => {
 			let selected = b;
-			const harness = createExtensionHarness({ cwd: a, onBusEvent(channel, request) {
+			const harness = createExtensionHarness({ cwd: a, sessionFile: join(root, "one.jsonl"), onBusEvent(channel, request) {
 				if (channel === "pi-change-working-dir:resolve-execution-cwd") Object.assign(request as object, { result: { cwd: selected } });
 			} });
 			await runExtensionEvent(harness.handlers, "session_start", {}, harness.ctx);
 			try {
 				const first = executeRegisteredTool(harness.tool, harness.ctx, { args: ["open", "https://fixture.test/"], sessionMode: "fresh" });
 				const queued = executeRegisteredTool(harness.tool, harness.ctx, { args: ["get", "title"], outputPath: "queued.json" });
+				const queuedCode = executeRegisteredTool(harness.getTool("agent_browser_code")!, harness.ctx, { code: 'emit((await browser({args:["get","title"]})).data);', outputPath: "queued-code.json" });
 				selected = a;
 				const [fresh, followup] = await Promise.all([first, queued]);
 				assert.equal(fresh.isError, false, fresh.content[0]?.text);
@@ -195,6 +196,11 @@ console.log(JSON.stringify({ success: true, data }));
 				assert.equal((followup.details?.outputFile as { absolutePath: string }).absolutePath, join(b, "queued.json"));
 				assert.ok((await readFile(join(b, "queued.json"))).length > 0);
 				await assert.rejects(readFile(join(a, "queued.json")), { code: "ENOENT" });
+				const code = await queuedCode;
+				assert.equal(code.isError, false, code.content[0]?.text);
+				assert.equal(code.details?.sessionName, fresh.details?.sessionName, "queued code must follow the fresh browser");
+				assert.equal((code.details?.outputFile as { absolutePath: string }).absolutePath, join(b, "queued-code.json"));
+				assert.equal((harness.appendedEntries.at(-1)?.data as { details: { managedSessionCwd: string } }).details.managedSessionCwd, b);
 			} finally { await runExtensionEvent(harness.handlers, "session_shutdown", { reason: "quit" }, harness.ctx); }
 		});
 	} finally { await rm(root, { recursive: true, force: true }); }
@@ -286,4 +292,3 @@ console.log(JSON.stringify({success:true, data}));
 		});
 	} finally { await rm(root, { recursive: true, force: true }); }
 });
-

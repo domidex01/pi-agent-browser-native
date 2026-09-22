@@ -101,6 +101,7 @@ export interface BrowserRunStatePatch {
 }
 
 export interface BrowserRunOptions {
+	modelVisible?: boolean;
 	operationCwd?: string;
 	daemonInactive?: boolean;
 	ctx: BrowserRunContext;
@@ -515,6 +516,7 @@ export interface FinalRecoveryState {
 }
 
 export interface FinalResultInput {
+	modelVisible?: boolean;
 	aboutBlankSessionMismatch?: AboutBlankSessionMismatch;
 	artifactCleanup?: ArtifactCleanupGuidance;
 	categoryDetails: AgentBrowserResultCategoryDetails;

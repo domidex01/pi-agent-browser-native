@@ -67,12 +67,12 @@ process.stdout.write(JSON.stringify({ success: true, data: JSON.parse(fs.readFil
 					const text = result.content[0]?.text ?? "";
 					assert.ok(text.startsWith(`Daemon: ${status.active ? "active" : "inactive"}; PID: ${status.pid ?? "unknown"}\n`));
 					assert.match(text, /\nBrowser: unknown; alive: unknown; Chrome PID: unknown\nExact profile: unknown\nNative browser ownership: unknown; Pi cleanup ownership: caller-owned\n\n/);
-					assert.deepEqual(JSON.parse(text.slice(text.indexOf("\n\n") + 2)), data);
+					assert.deepEqual(JSON.parse(text.slice(text.indexOf("\n\n") + 2).split("\n\nObservation:")[0]), data);
 					assert.deepEqual(result.details?.data, { ...data, piCleanupOwnership: "caller-owned" });
 				}
 				await writeFile(dataPath, JSON.stringify({ session: "fixture" }));
 				const legacy = await executeRegisteredTool(harness.tool, harness.ctx, { args: ["--session", "fixture", "session", "info"] });
-				assert.equal(legacy.content[0]?.text, "Current session: fixture");
+				assert.match(legacy.content[0]?.text ?? "", /^Current session: fixture\n\nObservation:/);
 				assert.equal((await readInvocationLog(logPath)).length, 4);
 			} finally {
 				await runExtensionEvent(harness.handlers, "session_shutdown", {}, harness.ctx);
@@ -1254,7 +1254,7 @@ if (args.includes("get") && args.includes("url")) {
 
 			const invocations = await readInvocationLog(logPath);
 			assert.deepEqual(invocations[0]?.args.at(-2), "get");
-			assert.equal(invocations.at(-1)?.args.at(-1), expectedPath);
+			assert.equal(invocations.find(entry => entry.args.includes("screenshot"))?.args.at(-1), expectedPath);
 		});
 	} finally {
 		await rm(tempDir, { force: true, recursive: true });

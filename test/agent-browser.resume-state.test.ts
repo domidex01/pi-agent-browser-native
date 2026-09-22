@@ -1008,7 +1008,7 @@ process.stdout.write(JSON.stringify({ success: true, data }));`,
             assert.deepEqual(open.details?.browserWindow, { mode: "headed", ownership: "wrapper-managed", sessionName: open.details?.sessionName, visibility: "unverified" });
             assert.deepEqual(open.details?.lifecycle, { effectiveLaunch: { browserLaunched: true } });
             assert.match(open.content[0]?.text ?? "", /Headed browser handoff:.*desktop visibility unverified/);
-            assert.ok(!(open.content[0]?.text ?? "").includes(String(open.details?.sessionName)));
+            assert.ok(!(open.content[0]?.text ?? "").split("\n\nObservation:")[0].includes(String(open.details?.sessionName)));
 
 			const followUp = await executeRegisteredTool(harness.tool, harness.ctx, { args: ["get", "url"] });
 			assert.equal(followUp.isError, false, JSON.stringify(followUp));
@@ -1591,7 +1591,7 @@ if (args.includes("session") && args.includes("info")) {
 			const oldSessionName = oldOpen.details?.sessionName;
 			assertIsString(oldSessionName);
 			const freshFailure = await executeRegisteredTool(harness.tool, harness.ctx, {
-				job: { steps: [{ action: "open", url: "https://example.com/fresh" }, { action: "assertText", text: "missing" }] },
+				args: ["batch", "--bail"], stdin: JSON.stringify([["open", "https://example.com/fresh"], ["wait", "--text", "missing"]]),
 				sessionMode: "fresh",
 			});
 			assert.equal(freshFailure.isError, true, JSON.stringify(freshFailure));

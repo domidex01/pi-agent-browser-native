@@ -2,6 +2,7 @@ import { readFileSync, statSync } from "node:fs";
 import { dirname, isAbsolute, join } from "node:path";
 import type { ExtensionAPI, ExtensionContext, SourceInfo } from "@earendil-works/pi-coding-agent";
 import { isRecord } from "./parsing.js";
+import { getBrowserResultMessage } from "./browser-transcript.js";
 import { getAgentBrowserSessionIdentityKey } from "./argv-grammar.js";
 
 function isDirectoryOwner(source: SourceInfo): boolean {
@@ -44,8 +45,9 @@ export function getBrowserCwdError(cwd: string): string | undefined {
 export function restoreManagedSessionCwd(branch: unknown[], sessionName: string, namespace: string | undefined, fallback: string): string {
 	const key = getAgentBrowserSessionIdentityKey(sessionName, namespace);
 	for (const entry of [...branch].reverse()) {
-		if (!isRecord(entry) || entry.type !== "message" || !isRecord(entry.message) || entry.message.toolName !== "agent_browser") continue;
-		const details = entry.message.details;
+		const message = getBrowserResultMessage(entry);
+		if (!message) continue;
+		const details = message.details;
 		if (!isRecord(details) || typeof details.sessionName !== "string" || typeof details.managedSessionCwd !== "string" || !isAbsolute(details.managedSessionCwd)) continue;
 		if (getAgentBrowserSessionIdentityKey(details.sessionName, typeof details.namespace === "string" ? details.namespace : undefined) === key) return details.managedSessionCwd;
 	}

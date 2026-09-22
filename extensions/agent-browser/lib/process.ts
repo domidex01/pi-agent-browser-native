@@ -221,6 +221,16 @@ export function getAgentBrowserSocketDir(
 	return `${prefix}${!termuxAppRoot && typeof uid === "number" ? `-${uid}` : ""}`;
 }
 
+export function resolveAgentBrowserSocketDir(options: {
+	env?: NodeJS.ProcessEnv;
+	ownedManagedSession?: boolean;
+	parentEnv?: NodeJS.ProcessEnv;
+} = {}): string | undefined {
+	const parentEnv = options.parentEnv ?? getAgentBrowserProcessEnvironment();
+	return options.env?.[AGENT_BROWSER_SOCKET_DIR_ENV] ?? parentEnv[PI_AGENT_BROWSER_SOCKET_DIR_ENV]
+		?? (!options.ownedManagedSession ? parentEnv[AGENT_BROWSER_SOCKET_DIR_ENV] : undefined) ?? getAgentBrowserSocketDir();
+}
+
 export function isTrustedAndroidAppDataRoot(
 	path: string,
 	metadata: { isDirectory(): boolean; isSymbolicLink(): boolean; mode: number; uid: number },
@@ -416,9 +426,9 @@ export async function runAgentBrowserProcess(options: {
 	const ownedManagedSession = options.ownedManagedSession === true || isOwnedManagedSessionTarget(options.args);
 	const args = options.args;
 	const timeoutMs = options.timeoutMs ?? getAgentBrowserProcessTimeoutMs();
-	if (signal?.aborted) {
-		return { aborted: true, agentBrowserStarted: false, exitCode: 1, stderr: "", stdout: "", timedOut: false };
-	}
+	const deadlineExpired = () => signal?.reason instanceof Error && signal.reason.name === "TimeoutError";
+	const cancelledResult = (): ProcessRunResult => ({ aborted: !deadlineExpired(), agentBrowserStarted: false, exitCode: deadlineExpired() ? 124 : 1, stderr: "", stdout: "", timedOut: deadlineExpired(), timeoutMs: deadlineExpired() ? timeoutMs : undefined });
+	if (signal?.aborted) return cancelledResult();
 	const parentEnv = getAgentBrowserProcessEnvironment();
 	const managedSessionRestoreOptions = {
 		args,
@@ -453,15 +463,12 @@ export async function runAgentBrowserProcess(options: {
 	};
 	const explicitSocketDir = processOverrides[AGENT_BROWSER_SOCKET_DIR_ENV];
 	let effectiveEnv = explicitSocketDir === undefined ? { ...processOverrides, [AGENT_BROWSER_SOCKET_DIR_ENV]: undefined } : processOverrides;
-	const requestedSocketDir = explicitSocketDir ?? parentEnv[PI_AGENT_BROWSER_SOCKET_DIR_ENV]
-		?? (!ownedManagedSession ? parentEnv[AGENT_BROWSER_SOCKET_DIR_ENV] : undefined) ?? getAgentBrowserSocketDir();
+	const requestedSocketDir = resolveAgentBrowserSocketDir({ env: processOverrides, ownedManagedSession, parentEnv });
 	if (requestedSocketDir !== undefined) {
 		const socketDirError = requestedSocketDir.length > 0
 			? await getAgentBrowserSocketDirValidationError(requestedSocketDir)
 			: "the configured path is empty";
-		if (signal?.aborted) {
-			return { aborted: true, agentBrowserStarted: false, exitCode: 1, stderr: "", stdout: "", timedOut: false };
-		}
+		if (signal?.aborted) return cancelledResult();
 		const socketPathError = socketDirError ? undefined : getAgentBrowserSocketPathValidationError({ args, env: effectiveEnv, socketDir: requestedSocketDir });
 		if (socketDirError || socketPathError) {
 			return {
@@ -478,9 +485,7 @@ export async function runAgentBrowserProcess(options: {
 	}
 	const childEnv = buildAgentBrowserProcessEnv(parentEnv, effectiveEnv);
 	const stockLauncher = resolveWindowsStockLauncher(cwd, childEnv);
-	if (signal?.aborted) {
-		return { aborted: true, agentBrowserStarted: false, exitCode: 1, stderr: "", stdout: "", timedOut: false };
-	}
+	if (signal?.aborted) return cancelledResult();
 	return await new Promise<ProcessRunResult>((resolve) => {
 		let aborted = false;
 		let agentBrowserStarted = false;
@@ -671,9 +676,9 @@ export async function runAgentBrowserProcess(options: {
 		}
 
 		if (signal) {
-			abortListener = () => terminateChild("abort");
+			abortListener = () => terminateChild(deadlineExpired() ? "timeout" : "abort");
 			signal.addEventListener("abort", abortListener, { once: true });
-			if (signal.aborted) terminateChild("abort");
+			if (signal.aborted) abortListener();
 		}
 
 		writeChildStdin();

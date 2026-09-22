@@ -83,8 +83,6 @@ export function normalizeRunInput(input: BrowserRunOptions["input"]): BrowserRun
 	switch (input.kind) {
 		case "electron":
 			return { ...base, compiledElectron: input.compiledElectron, redactedCompiledElectron: input.redactedCompiledElectron };
-		case "job":
-			return { ...base, compiledJob: input.compiledJob, redactedCompiledJob: input.redactedCompiledJob };
 		case "networkSourceLookup":
 			return { ...base, compiledNetworkSourceLookup: input.compiledNetworkSourceLookup, redactedCompiledNetworkSourceLookup: input.redactedCompiledNetworkSourceLookup };
 		case "qa":
@@ -93,7 +91,6 @@ export function normalizeRunInput(input: BrowserRunOptions["input"]): BrowserRun
 			return { ...base, compiledSemanticAction: input.compiledSemanticAction, redactedCompiledSemanticAction: input.redactedCompiledSemanticAction };
 		case "sourceLookup":
 			return { ...base, compiledSourceLookup: input.compiledSourceLookup, redactedCompiledSourceLookup: input.redactedCompiledSourceLookup };
-		case "script":
 		case "args":
 			return base;
 	}
@@ -1021,6 +1018,7 @@ export async function prepareBrowserRun(options: BrowserRunOptions): Promise<Pre
 
 		const persistentArtifactStore = getPersistentSessionArtifactStore(options.ctx);
 		const snapshotFilter = await trySnapshotFilter({
+			modelVisible: options.modelVisible,
 			artifactManifest: state.artifactManifest,
 			commandTokens,
 			compatibilityWorkaround,

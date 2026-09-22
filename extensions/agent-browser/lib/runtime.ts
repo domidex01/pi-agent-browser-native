@@ -9,6 +9,7 @@ import {
 	type CommandInfo,
 } from "./argv-descriptor.js";
 import { batchHasSuccessfulCloseAll, getSuccessfulBatchCloseLifecycle } from "./batch-lifecycle.js";
+import { getBrowserResultMessage } from "./browser-transcript.js";
 import {
 	canonicalizeAgentBrowserNamespace,
 	extractExplicitNamespace,
@@ -20,11 +21,13 @@ import {
 	isAgentBrowserSessionIdentityKeyInNamespace,
 	isUpstreamEnvFlagEnabled,
 	PREVALIDATED_VALUE_FLAGS,
+	projectUpstreamGlobalFlags,
 	resolveAgentBrowserNamespace,
 	scanUpstreamGlobalFlagOccurrences,
 	stripUpstreamGlobalFlags,
 } from "./argv-grammar.js";
 import { needsManagedSession } from "./command-policy.js";
+import { parseBatchCommandArgument } from "./orchestration/batch-stdin.js";
 import { isCloseAllCommand, isCloseCommand, isOpenNavigationCommand } from "./command-taxonomy.js";
 import {
 	hasLaunchScopedFlagToken,
@@ -459,6 +462,16 @@ export function redactInvocationArgs(args: string[]): string[] {
 		}
 	}
 
+	const batch = projectUpstreamGlobalFlags(args);
+	if (batch.tokens[0] === "batch") {
+		for (let index = 1; index < batch.tokens.length; index++) {
+			if (batch.tokens[index] === "--bail") continue;
+			const step = parseBatchCommandArgument(batch.tokens[index]).step;
+			if (!step) continue;
+			const safe = redactInvocationArgs(step);
+			if (safe.some((token, offset) => token !== step[offset])) redacted[batch.indices[index]] = safe.map(token => `'${token.replaceAll("'", "'\\''")}'`).join(" ");
+		}
+	}
 	return redacted;
 }
 
@@ -601,11 +614,8 @@ export function restoreManagedSessionStateFromBranch(
 	};
 
 	for (const entry of branch) {
-		if (!isRecord(entry) || entry.type !== "message") {
-			continue;
-		}
-		const message = isRecord(entry.message) ? entry.message : undefined;
-		if (!message || message.toolName !== "agent_browser") {
+		const message = getBrowserResultMessage(entry);
+		if (!message) {
 			continue;
 		}
 		const details = isRecord(message.details) ? message.details : undefined;

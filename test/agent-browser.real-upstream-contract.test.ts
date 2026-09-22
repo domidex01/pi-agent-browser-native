@@ -628,7 +628,9 @@ test("real upstream agent-browser contract suite matches reported browser regres
 					const result = await call({ args: ["--json", "snapshot", "-i", "--filter", "role=button"] });
 					const envelope = JSON.parse(result.content[0]?.text ?? "");
 					assert.equal(envelope.success, true);
-					assert.deepEqual(envelope.data, result.details?.data);
+					const { lifecycle, ...visibleData } = result.details?.data as Record<string, unknown>;
+					assert.ok(lifecycle, "native lifecycle remains in audit details");
+					assert.deepEqual(envelope.data, visibleData);
 					assert.ok(Object.values(envelope.data.refs).every((ref) => (ref as { role: string }).role === "button"));
 					assert.ok(Object.values((result.details?.refSnapshot as { refs: Record<string, { role: string }> }).refs).some(ref => ref.role === "link"));
 					const failure = await executeRegisteredTool(h.tool, h.ctx, { args: ["--json", "scroll", "#missing-panel", "down", "300"] });
@@ -1179,10 +1181,10 @@ if (!REAL_UPSTREAM_ENABLED) {
 						getResultValue(await runCoreCommand(harness, ["get", "value", "#flavor-select"], shapes.commands.coreSubcommand, managedSessionName), ["value"]),
 						"vanilla",
 					);
-					const jobSelect = await executeRegisteredTool(harness.tool, harness.ctx, {
-						job: { steps: [{ action: "select", selector: "#flavor-select", value: "chocolate" }] },
+					const batchSelect = await executeRegisteredTool(harness.tool, harness.ctx, {
+						args: ["batch", "--bail"], stdin: JSON.stringify([["select", "#flavor-select", "chocolate"]]),
 					});
-					assertCoreCommandResult(jobSelect, shapes.commands.batch, "job select", managedSessionName);
+					assertCoreCommandResult(batchSelect, shapes.commands.batch, "batch select", managedSessionName);
 					assert.equal(
 						getResultValue(await runCoreCommand(harness, ["get", "value", "#flavor-select"], shapes.commands.coreSubcommand, managedSessionName), ["value"]),
 						"chocolate",

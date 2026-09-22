@@ -58,4 +58,3 @@ test("exact package source provenance identifies legacy owners when manifests ar
 		assert.equal(resolveExecutionCwd(api(undefined, { tools: [missingSource(name)], commands: [missingSource(name)] }), ctx), ctx.cwd);
 	}
 });
-
