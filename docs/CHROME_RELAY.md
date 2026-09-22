@@ -25,6 +25,7 @@ The relay is vendored from [oh-my-pi](https://github.com/Can1357/oh-my-pi)
    ```sh
    npx pi-agent-browser-chrome-relay start --token-gen
    # chrome relay listening on ws://127.0.0.1:9224/cdp
+   # token (paste into the extension options): <printed once here>
    ```
 
 3. Load the extension in the real Chrome: open `chrome://extensions`, enable
@@ -32,9 +33,8 @@ The relay is vendored from [oh-my-pi](https://github.com/Can1357/oh-my-pi)
    `npx pi-agent-browser-chrome-relay extension-path`. Chrome shows the
    "started debugging this browser" infobar while the relay drives it.
 
-4. If you generated a token, open the extension's options page and paste it
-   (plus a different host/port if you changed them). The extension reconnects
-   automatically.
+4. Paste the printed token into the extension's options page (plus a different
+   host/port if you changed them). The extension reconnects automatically.
 
 5. Connect from the wrapper like any CDP browser:
 
@@ -44,7 +44,9 @@ The relay is vendored from [oh-my-pi](https://github.com/Can1357/oh-my-pi)
 
 `status` reports whether the server is up and the extension has completed its
 handshake; `stop` terminates the recorded `start`. State lives in the OS temp
-directory, so `status`/`stop` work from other shells.
+directory, so `status`/`stop` work from other shells — and both act on the
+most recent `start` (single state slot; a second instance on another port
+overwrites it).
 
 ## Commands
 
@@ -58,22 +60,38 @@ directory, so `status`/`stop` work from other shells.
 
 ## Windows Chrome + WSL2
 
-In WSL2 NAT mode (the default), Chrome on Windows cannot reach `127.0.0.1`
-inside the WSL VM. Two fixes; prefer the first:
+Validated live (2026-09-22, WSL2 NAT with `localhostForwarding=true`, the
+default): **nothing extra is needed.** Chrome on Windows dials
+`127.0.0.1:<port>`; WSL localhost forwarding delivers the connection to the
+relay's loopback socket; the extension's default Host (`127.0.0.1`) just
+works. No portproxy, no host changes.
 
-1. **Point the extension at the VM address.** In the extension options, set
-   *Relay host* to the WSL IP (`ip -4 addr show eth0` inside WSL, e.g.
-   `172.27.91.244`). The host field accepts a bare hostname/IP only. The IP
-   changes on reboot — re-check it when the relay stops connecting.
-2. **Port-forward from Windows.** In an administrator PowerShell:
+If localhost forwarding is off on your machine, bridge — don't re-point:
 
-   ```powershell
-   netsh interface portproxy add v4tov4 listenaddress=127.0.0.1 listenport=9224 connectaddress=<WSL_IP> connectport=9224
-   ```
+1. **Fallback: socat inside WSL.** Run
+   `socat TCP-LISTEN:9224,bind=<WSL_IP>,fork,reuseaddr TCP:127.0.0.1:9224`
+   (get `<WSL_IP>` from `ip -4 addr show eth0`; it changes on reboot), then
+   set the extension's *Relay host* to `<WSL_IP>` via its options page. The
+   relay itself keeps its loopback-only bind.
+2. **Why not dial the WSL IP directly?** The relay binds `127.0.0.1` only, so
+   connections addressed to the eth0 IP are refused by design — that is the
+   security invariant, not a bug. Any forwarder (e.g. Windows `netsh`
+   portproxy recipes) must ultimately land on a listener that hands off to
+   `127.0.0.1` inside WSL, i.e. the socat bridge above.
 
-   and keep the extension host at `127.0.0.1`. Same caveat: `<WSL_IP>` changes
-   on reboot (`netsh interface portproxy show all` to inspect, `delete` to
-   remove).
+## Driving your real browser: tab semantics
+
+The wrapper's `open <url>` navigates the session's *current* tab, and
+`tab close` with no argument closes that same tab — on an adopted browser
+that tab may be one of the user's real tabs (learned in dogfood: this closed
+an operator's live tab; Chrome's Ctrl+Shift+T restored it). The safe pattern:
+
+- open pages in a fresh tab with `tab new <url>`;
+- close tabs by explicit id: `tab close <tN>` (ids from `tab list`);
+- `close --all` ends the wrapper session only — the user's tabs and the
+  browser itself stay exactly as they were.
+
+## Security model
 
 ## Security model
 

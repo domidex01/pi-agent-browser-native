@@ -92,6 +92,7 @@ function start(args) {
 	writeFileSync(STATE_FILE, JSON.stringify({ pid: process.pid, port: srv.port }));
 	const origin = new URL(import.meta.url);
 	console.log(`chrome relay listening on ws://127.0.0.1:${srv.port}/cdp`);
+	if (args.get("token-gen") && token) console.log(`token (paste into the extension options): ${token}`);
 	console.log(`extension: load unpacked from "${join(dirname(fileURLToPath(origin)), "..", "chrome-relay", "extension")}"`);
 	console.log("press Ctrl-C to stop");
 	let stopped = false;
